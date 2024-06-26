@@ -1,0 +1,17 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: migration
+  output:
+    ansi:
+      enabled: ALWAYS
+
+email: ${EMAIL}
+password: ${PASSWORD}
+
+logging:
+  file:
+    name: ./migration.log
+
