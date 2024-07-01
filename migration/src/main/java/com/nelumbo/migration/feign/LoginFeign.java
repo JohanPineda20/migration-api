@@ -1,8 +1,8 @@
 package com.nelumbo.migration.feign;
 
 import com.nelumbo.migration.feign.dto.DefaultResponse;
-import com.nelumbo.migration.feign.dto.LoginRequest;
-import com.nelumbo.migration.feign.dto.LoginResponse;
+import com.nelumbo.migration.feign.dto.requests.LoginRequest;
+import com.nelumbo.migration.feign.dto.responses.LoginResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;

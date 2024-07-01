@@ -1,4 +1,4 @@
-package com.nelumbo.migration.feign.dto;
+package com.nelumbo.migration.feign.dto.requests;
 
 import lombok.Data;
 

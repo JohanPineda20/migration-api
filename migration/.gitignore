@@ -35,3 +35,8 @@ out/
 
 ### VS Code ###
 .vscode/
+
+##No seguir el archivo log ni los excel ##
+*.log
+*.xlsx
+*.gz

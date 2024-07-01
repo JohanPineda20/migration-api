@@ -1,0 +1,75 @@
+package com.nelumbo.migration.controller;
+
+import com.nelumbo.migration.service.ServiceMigration;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+
+@Slf4j
+@RestController
+@RequestMapping("/controller-migration")
+@RequiredArgsConstructor
+public class ControllerMigration {
+
+    private static final String APPLICATION_EXCEL = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    private static final String ATTACHMENT_FILENAME = "attachment; filename=";
+    private static final String ERROR_EXCEL = "Error returning modified Excel file: ";
+    private final ServiceMigration serviceMigration;
+
+    @PostMapping("/load-compensations")
+    public ResponseEntity<InputStreamResource> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file) {
+        File modifiedFile = serviceMigration.cargarCompensaciones(file);
+        return  processFile(modifiedFile);
+    }
+
+    @PostMapping("/load-tabs")
+    public ResponseEntity<InputStreamResource> loadTabs(@RequestPart(value = "file") MultipartFile file) {
+        File modifiedFile = serviceMigration.loadTabs(file);
+        return  processFile(modifiedFile);
+    }
+
+    @PostMapping("/load-work-position-categories")
+    public ResponseEntity<InputStreamResource> loadWorkPositionCategories(@RequestPart(value = "file") MultipartFile file) {
+        File modifiedFile = serviceMigration.loadWorkPositionCategories(file);
+        return  processFile(modifiedFile);
+    }
+
+    @PostMapping("/load-work-periods")
+    public ResponseEntity<InputStreamResource> loadWorkPoeriods(@RequestPart(value = "file") MultipartFile file) {
+        File modifiedFile = serviceMigration.loadWorkPeriods(file);
+        return  processFile(modifiedFile);
+    }
+
+    private ResponseEntity<InputStreamResource> processFile(File modifiedFile) {
+
+        try {
+            InputStreamResource resource = new InputStreamResource(new FileInputStream(modifiedFile));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(HttpHeaders.CONTENT_DISPOSITION, ATTACHMENT_FILENAME + modifiedFile.getName());
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentLength(modifiedFile.length())
+                    .contentType(MediaType.parseMediaType(APPLICATION_EXCEL))
+                    .body(resource);
+        } catch (IOException e) {
+            log.error(ERROR_EXCEL + " {}", e.getMessage());
+            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+}
