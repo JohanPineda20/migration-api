@@ -1,0 +1,12 @@
+package com.nelumbo.migration.feign.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class StoreResponse {
+    private Long id;
+    private String code;
+    private String denomination;
+}

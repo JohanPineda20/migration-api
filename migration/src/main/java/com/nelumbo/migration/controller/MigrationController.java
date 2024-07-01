@@ -15,9 +15,29 @@ import org.springframework.web.multipart.MultipartFile;
 public class MigrationController {
 
     private final MigrationService migrationService;
-    @PostMapping
-    public ResponseEntity<Void> migrateData(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateData(file);
+    @PostMapping("cost-centers")
+    public ResponseEntity<Void> migrateCostCenters(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateCostCenters(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("stores")
+    public ResponseEntity<Void> migrateStores(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateStores(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("stores-org-entities-details")
+    public ResponseEntity<Void> migrateStoresOrgEntities(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateStoresOrgEntities(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("work-positions")
+    public ResponseEntity<Void> migrateWorkPositions(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateWorkPositions(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("profiles")
+    public ResponseEntity<Void> migrateProfiles(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateProfiles(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
 }
