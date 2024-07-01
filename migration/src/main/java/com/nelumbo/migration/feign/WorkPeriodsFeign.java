@@ -1,7 +1,7 @@
 package com.nelumbo.migration.feign;
 
 import com.nelumbo.migration.feign.dto.requests.WorkPeriodRequest;
-import com.nelumbo.migration.feign.dto.DefaultResponse;
+import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import com.nelumbo.migration.feign.dto.responses.WorkPeriodResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;

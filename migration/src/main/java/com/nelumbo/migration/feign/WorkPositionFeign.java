@@ -1,6 +1,8 @@
 package com.nelumbo.migration.feign;
 
-import com.nelumbo.migration.feign.dto.*;
+import com.nelumbo.migration.feign.dto.requests.WorkPositionRequest;
+import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
+import com.nelumbo.migration.feign.dto.responses.WorkPositionDetailResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;

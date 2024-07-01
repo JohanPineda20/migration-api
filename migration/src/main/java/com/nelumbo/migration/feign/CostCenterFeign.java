@@ -1,8 +1,8 @@
 package com.nelumbo.migration.feign;
 
-import com.nelumbo.migration.feign.dto.CostCenterRequest;
-import com.nelumbo.migration.feign.dto.CostCenterResponse;
-import com.nelumbo.migration.feign.dto.DefaultResponse;
+import com.nelumbo.migration.feign.dto.requests.CostCenterRequest;
+import com.nelumbo.migration.feign.dto.responses.CostCenterResponse;
+import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;

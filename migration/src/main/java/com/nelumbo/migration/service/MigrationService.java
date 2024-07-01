@@ -2,6 +2,8 @@ package com.nelumbo.migration.service;
 
 import com.nelumbo.migration.feign.*;
 import com.nelumbo.migration.feign.dto.*;
+import com.nelumbo.migration.feign.dto.requests.*;
+import com.nelumbo.migration.feign.dto.responses.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;

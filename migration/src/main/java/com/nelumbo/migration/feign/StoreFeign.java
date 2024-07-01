@@ -1,8 +1,11 @@
 package com.nelumbo.migration.feign;
 
-import com.nelumbo.migration.feign.dto.*;
+import com.nelumbo.migration.feign.dto.requests.StoreDetailRequest;
+import com.nelumbo.migration.feign.dto.requests.StoreRequest;
+import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
+import com.nelumbo.migration.feign.dto.responses.StoreDetailResponse;
+import com.nelumbo.migration.feign.dto.responses.StoreResponse;
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;

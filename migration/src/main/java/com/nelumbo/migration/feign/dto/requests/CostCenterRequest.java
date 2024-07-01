@@ -1,13 +1,14 @@
-package com.nelumbo.migration.feign.dto;
+package com.nelumbo.migration.feign.dto.requests;
 
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.HashMap;
 import java.util.Map;
+
 @Getter
 @Setter
-public class StoreRequest {
+public class CostCenterRequest {
     private String code;
     private String denomination;
     private Long countryId;
@@ -15,10 +16,4 @@ public class StoreRequest {
     private Long cityId;
     private Map<String, Object> fieldsValues = new HashMap<>();
     private Long statusId;
-    private String address;
-    private String zipcode;
-    private Long georefDistance;
-    private Double latitude;
-    private Double longitude;
-    private Long costCenterId;
 }

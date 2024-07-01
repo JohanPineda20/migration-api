@@ -1,7 +1,7 @@
 package com.nelumbo.migration.service;
 
 import com.nelumbo.migration.feign.*;
-import com.nelumbo.migration.feign.dto.DefaultResponse;
+import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import com.nelumbo.migration.feign.dto.requests.*;
 import com.nelumbo.migration.feign.dto.responses.*;
 import lombok.RequiredArgsConstructor;

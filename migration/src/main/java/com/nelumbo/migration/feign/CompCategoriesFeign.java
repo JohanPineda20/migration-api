@@ -2,7 +2,7 @@ package com.nelumbo.migration.feign;
 
 import com.nelumbo.migration.feign.dto.requests.CompCategoriesRequest;
 import com.nelumbo.migration.feign.dto.responses.CompCategoriesResponse;
-import com.nelumbo.migration.feign.dto.DefaultResponse;
+import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 

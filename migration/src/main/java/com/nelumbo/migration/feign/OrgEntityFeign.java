@@ -1,6 +1,8 @@
 package com.nelumbo.migration.feign;
 
 import com.nelumbo.migration.feign.dto.*;
+import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
+import com.nelumbo.migration.feign.dto.responses.OrgEntityResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 
