@@ -7,6 +7,8 @@ import lombok.Setter;
 @Setter
 public class WorkPositionCategoryResponse {
 
+    private Long id;
+
     private String code;
 
     private String denomination;

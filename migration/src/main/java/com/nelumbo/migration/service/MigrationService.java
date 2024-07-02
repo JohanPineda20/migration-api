@@ -7,11 +7,17 @@ import com.nelumbo.migration.feign.dto.responses.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -21,6 +27,10 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 @RequiredArgsConstructor
 public class MigrationService {
+
+    private static final String BEARER = "Bearer ";
+    private static final String MODIFIED = "modified_";
+
     private final CountryFeign countryFeign;
     private final CostCenterFeign costCenterFeign;
     private final LoginFeign loginFeign;
@@ -28,17 +38,31 @@ public class MigrationService {
     private final OrgEntityFeign orgEntityFeign;
     private final WorkPositionFeign workPositionFeign;
     private final ProfileFeign profileFeign;
+    private final CompCategoriesFeign compCategoriesFeign;
+    private final TabsFeign tabsFeign;
+    private final WorksPositionCategoriesFeign worksPositionCategoriesFeign;
+    private final WorkPeriodsFeign workPeriodsFeign;
+    private final WorkPeriodsTypesFeign workPeriodsTypesFeign;
+    private final WorkPeriodsMaxDurationsFeign workPeriodsMaxDurationsFeign;
+    private final WorkPeriodsMaxDailyDurationsFeign workPeriodsMaxDailyDurationsFeign;
+    private final DurationsFeign durationsFeign;
+    private final WorkTurnTypesFeign workTurnTypesFeign;
+
     Map<String, Long> costCenterResponseMap = new ConcurrentHashMap<>();
     Map<String, Long> storeResponseMap = new ConcurrentHashMap<>();
     Map<String,Map<String, Long>> storeDetailResponseMap = new ConcurrentHashMap<>();
     Map<String,Long> workPositionResponseMap = new ConcurrentHashMap<>();
+    Map<String,Long> workPeriodsMap = new ConcurrentHashMap<>();
+    Map<String,Long> workPositionCategoriesMap = new ConcurrentHashMap<>();
+
     @Value("${email}")
     private String email;
+
     @Value("${password}")
     private String password;
 
     public void migrateCostCenters(MultipartFile file) {
-        DefaultResponse<LoginResponse> loginResponse = login();
+        String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -71,7 +95,7 @@ public class MigrationService {
                     costCenterRequest.setCityId(cityId);
                     costCenterRequest.setStatusId(1L);
 
-                    DefaultResponse<CostCenterResponse> costCenterResponse = costCenterFeign.createCostCenter("Bearer ".concat(loginResponse.getData().getToken()), costCenterRequest);
+                    DefaultResponse<CostCenterResponse> costCenterResponse = costCenterFeign.createCostCenter(bearerToken, costCenterRequest);
                     costCenterResponseMap.put(costCenterResponse.getData().getDenomination(), costCenterResponse.getData().getId());
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet centro de costos: " + e.getMessage());
@@ -83,7 +107,7 @@ public class MigrationService {
     }
 
     public void migrateStores(MultipartFile file) {
-        DefaultResponse<LoginResponse> loginResponse = login();
+        String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -122,7 +146,7 @@ public class MigrationService {
                     storeRequest.setGeorefDistance((long) row.getCell(9).getNumericCellValue());
                     Long costCenterId = row.getCell(10) != null ? costCenterResponseMap.get(row.getCell(10).getStringCellValue()) : null;
                     storeRequest.setCostCenterId(costCenterId);
-                    DefaultResponse<StoreResponse> storeResponse = storeFeign.createStore("Bearer ".concat(loginResponse.getData().getToken()), storeRequest);
+                    DefaultResponse<StoreResponse> storeResponse = storeFeign.createStore(bearerToken, storeRequest);
                     storeResponseMap.put(storeResponse.getData().getDenomination(), storeResponse.getData().getId());
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
@@ -135,7 +159,7 @@ public class MigrationService {
     }
 
     public void migrateStoresOrgEntities(MultipartFile file) {
-        DefaultResponse<LoginResponse> loginResponse = login();
+        String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheetAt(2);
@@ -161,7 +185,7 @@ public class MigrationService {
                     orgEntityDetailIds.add(1L);
                     if (cellRegion != null || cellDivision != null || cellZona != null) {
                         if (cellRegion != null) {
-                            regionId = getEntityId(loginResponse, cellRegion, 2L, 1L, "region");
+                            regionId = getEntityId(bearerToken, cellRegion, 2L, 1L, "region");
                             orgEntityDetailIds.add(regionId);
                         }
 
@@ -169,7 +193,7 @@ public class MigrationService {
                             if (regionId == null) {
                                 throw new RuntimeException("Invalid geographic structure: missing region");
                             }
-                            divisionId = getEntityId(loginResponse, cellDivision, 3L, regionId, "division");
+                            divisionId = getEntityId(bearerToken, cellDivision, 3L, regionId, "division");
                             orgEntityDetailIds.add(divisionId);
                         }
 
@@ -180,11 +204,11 @@ public class MigrationService {
                             if (divisionId == null) {
                                 throw new RuntimeException("Invalid geographic structure: missing division");
                             }
-                            zonaId = getEntityId(loginResponse, cellZona, 4L, divisionId, "zona");
+                            zonaId = getEntityId(bearerToken, cellZona, 4L, divisionId, "zona");
                             orgEntityDetailIds.add(zonaId);
                         }
                     }
-                    storeFeign.createStoreDetails("Bearer ".concat(loginResponse.getData().getToken()), storeDetailRequest, storeId);
+                    storeFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
 
                     Cell cellDepartamento = row.getCell(4);
                     if (cellDepartamento == null) throw new RuntimeException("store need one or more departments");
@@ -193,7 +217,7 @@ public class MigrationService {
                     storeDetailResponseMap.put(row.getCell(0).getStringCellValue(), new HashMap<>());
                     for (String department : departments) {
                         DefaultResponse<Page<OrgEntityResponse>> entityResponse = orgEntityFeign.findAllInstancesParentOrganizationEntityDetail(
-                                "Bearer ".concat(loginResponse.getData().getToken()), 5L, 0L);
+                                bearerToken, 5L, 0L);
                         Long departmentId = entityResponse.getData().getContent().stream()
                                 .filter(entity -> entity.getName().equalsIgnoreCase(department))
                                 .findFirst()
@@ -202,7 +226,7 @@ public class MigrationService {
                         orgEntityDetailIds = new ArrayList<>();
                         orgEntityDetailIds.add(departmentId);
                         storeDetailRequest.setOrgEntityDetailIds(orgEntityDetailIds);
-                        DefaultResponse<StoreDetailResponse> storeDetailResponse = storeFeign.createStoreDetails("Bearer ".concat(loginResponse.getData().getToken()), storeDetailRequest, storeId);
+                        DefaultResponse<StoreDetailResponse> storeDetailResponse = storeFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
                         storeDetailResponseMap.get(row.getCell(0).getStringCellValue()).put(department, storeDetailResponse.getData().getId());
                     }
                 } catch (Exception e) {
@@ -214,9 +238,9 @@ public class MigrationService {
         }
     }
 
-    private Long getEntityId(DefaultResponse<LoginResponse> loginResponse, Cell cell, Long entityType, Long parentId, String entityName) {
+    private Long getEntityId(String bearerToken, Cell cell, Long entityType, Long parentId, String entityName) {
         DefaultResponse<Page<OrgEntityResponse>> entityResponse = orgEntityFeign.findAllInstancesParentOrganizationEntityDetail(
-                "Bearer ".concat(loginResponse.getData().getToken()), entityType, parentId
+                bearerToken, entityType, parentId
         );
 
         return entityResponse.getData().getContent().stream()
@@ -227,7 +251,7 @@ public class MigrationService {
     }
 
     public void migrateWorkPositions(MultipartFile file) {
-        DefaultResponse<LoginResponse> loginResponse = login();
+        String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -243,11 +267,11 @@ public class MigrationService {
                     workPositionRequest.setDenomination(row.getCell(1).getStringCellValue());
                     workPositionRequest.setAuthorizedStaff((long)row.getCell(2).getNumericCellValue());
                     workPositionRequest.setStatusId(1L);
-                    workPositionRequest.setWorkPosCatId(1L);//workPosCatResponseMap.get(row.getCell(3).getStringCellValue())
+                    workPositionRequest.setWorkPosCatId(workPositionCategoriesMap.get(row.getCell(3).getStringCellValue()));//workPosCatResponseMap.get(row.getCell(3).getStringCellValue())
                     workPositionRequest.setStoreId(storeResponseMap.get(row.getCell(4).getStringCellValue()));
                     workPositionRequest.setStoreOrganizativeId(storeDetailResponseMap.get(row.getCell(4).getStringCellValue()).get(row.getCell(5).getStringCellValue()));
 
-                    DefaultResponse<WorkPositionDetailResponse> workPositionDetailResponse = workPositionFeign.createWorkPosition("Bearer ".concat(loginResponse.getData().getToken()), workPositionRequest);
+                    DefaultResponse<WorkPositionDetailResponse> workPositionDetailResponse = workPositionFeign.createWorkPosition(bearerToken, workPositionRequest);
                     workPositionResponseMap.put(workPositionDetailResponse.getData().getWorkPosition().getDenomination(), workPositionDetailResponse.getData().getWorkPosition().getId());
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet cargos: " + e.getMessage());
@@ -260,7 +284,7 @@ public class MigrationService {
     }
 
     public void migrateProfiles(MultipartFile file) {
-        DefaultResponse<LoginResponse> loginResponse = login();
+        String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -334,7 +358,7 @@ public class MigrationService {
                     Long workPositionId = workPositionResponseMap.get(row.getCell(25).getStringCellValue());
                     if (workPositionId == null) throw new RuntimeException("work position ".concat(row.getCell(25).getStringCellValue().concat(" not found")));
                     profileRequest.setWorkPositionId(workPositionId);
-                    profileFeign.createProfile("Bearer ".concat(loginResponse.getData().getToken()), profileRequest);
+                    profileFeign.createProfile(bearerToken, profileRequest);
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getMessage());
                 }
@@ -350,5 +374,596 @@ public class MigrationService {
         loginRequest.setEmail(email);
         loginRequest.setPassword(password);
         return loginFeign.login(loginRequest);
+    }
+
+    public File cargarCompensaciones(MultipartFile file) {
+
+        String bearerToken = this.getBearerToken();
+
+        // Archivo modificado para devolver
+        File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
+
+        // Para abrir el workbook y que se cierre automáticamente al finalizar
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            log.info("Entramos a recorrer el archivo");
+
+            // Nos posicionamos en la primera hoja
+            Sheet sheet = workbook.getSheetAt(0);
+
+            log.info("Estamos con la hoja: " + sheet.getSheetName());
+
+            // Cantidad de filas en la hoja
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            log.info("La cantidad de filas es: " + sheet.getPhysicalNumberOfRows());
+
+            // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    // Sacamos el código y el nombre de la compensación
+                    Row row = sheet.getRow(i);
+                    String denomination = (row.getCell(1).getStringCellValue()).trim();
+                    String code = (row.getCell(0).getCellType() == CellType.STRING ? row.getCell(0).getStringCellValue() : "" + (int) row.getCell(0).getNumericCellValue()).trim();
+
+                    log.info("Compensacion a consultar con nombre: " + denomination + " \ncon codigo: " + code);
+
+                    // Consultamos si existe la compensación por nombre
+                    DefaultResponse<List<CompCategoriesResponse>> compCategoriesRes = compCategoriesFeign.simplifiedSearch(bearerToken, denomination);
+                    boolean existsCompCategoriesByDeno = compCategoriesRes.getData().stream()
+                            .filter(comp -> {
+                                log.info("Compensacion que viene del api: " + comp.getDenomination());
+                                log.info("Compensacion del excel: " + denomination);
+                                return comp.getDenomination().equalsIgnoreCase(denomination);
+                            })
+                            .findFirst().map(c -> true).orElse(false);
+
+                    // Si existe, seguimos a la siguiente para no volverla a insertar
+                    if (existsCompCategoriesByDeno ) {
+                        log.info("Continuamos debido a que esa compensacion ya existe!");
+                        continue;
+                    }
+
+                    // Consultamos si existe la compensación por el código (no debe existir dos compensaciones con el mismo código)
+                    compCategoriesRes = compCategoriesFeign.simplifiedSearch(bearerToken, code);
+                    boolean existsCompCategoriesbyCode = compCategoriesRes.getData().stream()
+                            .filter(comp -> {
+                                log.info("Compensacion que viene del api con codigo: " + comp.getCode());
+                                log.info("Compensacion del excel con codigo: " + code);
+                                return comp.getCode().equalsIgnoreCase(code);
+                            }).findFirst().map(c -> true).orElse(false);
+
+                    if (existsCompCategoriesbyCode && !existsCompCategoriesByDeno) {
+
+                        // Agregar celda con el mensaje de error en la fila que falló
+                        Row errorRow = sheet.getRow(i);
+                        Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells());
+                        errorCell.setCellValue("Error: exist a compensation-category with the code");
+                        continue;
+                    }
+
+                    // Preparamos el objeto que irá en el body
+                    CompCategoriesRequest compCategories = new CompCategoriesRequest();
+                    compCategories.setCode(code);
+                    compCategories.setDenomination(denomination);
+                    compCategories.setStatusId(1L);
+
+                    // Realizamos la petición
+                    compCategoriesFeign.createCompensationCategories(bearerToken, compCategories);
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in Excel: " + e.getMessage());
+
+                    // Agregar celda con el mensaje de error en la fila que falló
+                    Row errorRow = sheet.getRow(i);
+                    Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells() + 1);
+                    errorCell.setCellValue("Error: " + e.getMessage());
+                }
+            }
+
+            // Escribir el workbook modificado de nuevo en el archivo original
+            try (FileOutputStream fileOut = new FileOutputStream(modifiedFile)) {
+                workbook.write(fileOut);
+            } catch (IOException e) {
+                log.error("Error writing modified Excel file: " + e.getMessage());
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+        return modifiedFile;
+    }
+
+    public File loadTabs(MultipartFile file) {
+
+        String bearerToken = this.getBearerToken();
+
+        // Archivo modificado para devolver
+        File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
+
+        // Para abrir el workbook y que se cierre automáticamente al finalizar
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            log.info("Entramos a recorrer el archivo");
+
+            // Nos posicionamos en la primera hoja
+            Sheet sheet = workbook.getSheetAt(0);
+
+            log.info("Estamos con la hoja: " + sheet.getSheetName());
+
+            // Cantidad de filas en la hoja
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            log.info("La cantidad de filas es: " + sheet.getPhysicalNumberOfRows());
+
+            // Crear un estilo de celda con color verde para los datos insertados correctamente
+            CellStyle cellStyle = workbook.createCellStyle();
+            XSSFColor greenColor = new XSSFColor(java.awt.Color.GREEN, null);
+            ((XSSFCellStyle) cellStyle).setFillForegroundColor(greenColor);
+            cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+            // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    // Sacamos el código y el nombre de la compensación
+                    Row row = sheet.getRow(i);
+                    String denomination = (row.getCell(1).getStringCellValue()).trim();
+                    String code = (row.getCell(0).getCellType() == CellType.STRING ? row.getCell(0).getStringCellValue() : "" + (int) row.getCell(0).getNumericCellValue()).trim();
+                    Long min_salary = (long) row.getCell(2).getNumericCellValue();
+                    Long max_salary = (long) row.getCell(3).getNumericCellValue();
+
+                    log.info("Tabulador a consultar con nombre: " + denomination + " \ncon codigo: " + code);
+
+                    // Consultamos si existe la compensación por nombre
+                    DefaultResponse<List<TabsResponse>> tabsRes = tabsFeign.simplifiedSearch(bearerToken, denomination);
+                    boolean existsTabByDeno = tabsRes.getData().stream()
+                            .filter(comp -> {
+                                log.info("Compensacion que viene del api: " + comp.getDenomination());
+                                log.info("Compensacion del excel: " + denomination);
+                                return comp.getDenomination().equalsIgnoreCase(denomination);
+                            })
+                            .findFirst().map(c -> true).orElse(false);
+
+                    // Si existe, seguimos a la siguiente para no volverla a insertar
+                    if (existsTabByDeno) {
+                        log.info("Continuamos debido a que esa compensacion ya existe!");
+                        row.getCell(0).setCellStyle(cellStyle);
+                        continue;
+                    }
+
+                    // Consultamos si existe la compensación por el código (no debe existir dos compensaciones con el mismo código)
+                    tabsRes = tabsFeign.simplifiedSearch(bearerToken, code);
+                    boolean existsTabByCode = tabsRes.getData().stream()
+                            .filter(comp -> {
+                                log.info("Compensacion que viene del api con codigo: " + comp.getCode());
+                                log.info("Compensacion del excel con codigo: " + code);
+                                return comp.getCode().equalsIgnoreCase(code);
+                            }).findFirst().map(c -> true).orElse(false);
+
+                    if (existsTabByDeno && !existsTabByCode) {
+
+                        // Agregar celda con el mensaje de error en la fila que falló
+                        Row errorRow = sheet.getRow(i);
+                        Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells());
+                        errorCell.setCellValue("Error: exist a compensation-category with the code");
+                        continue;
+                    }
+
+                    if (min_salary < 0 || max_salary < 0) {
+
+                        // Agregar celda con el mensaje de error en la fila que falló
+                        Row errorRow = sheet.getRow(i);
+                        Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells());
+                        errorCell.setCellValue("Error: max_authorized_salary or min_authorized_salary can not be less than zero");
+                        continue;
+                    }
+
+                    // Preparamos el objeto que irá en el body
+                    TabsRequest tabsRequest = new TabsRequest();
+                    tabsRequest.setCode(code);
+                    tabsRequest.setDenomination(denomination);
+                    tabsRequest.setMinAuthorizedSalary(min_salary);
+                    tabsRequest.setMaxAuthorizedSalary(max_salary);
+                    tabsRequest.setStatusId(1L);
+
+                    // Realizamos la petición
+                    tabsFeign.createTab(bearerToken, tabsRequest);
+                    row.getCell(0).setCellStyle(cellStyle);
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in Excel: " + e.getMessage());
+                    log.error("El tipo de excepction es: " + e.getClass().getSimpleName());
+
+                    // Agregar celda con el mensaje de error en la fila que falló
+                    Row errorRow = sheet.getRow(i);
+                    Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells() + 1);
+                    errorCell.setCellValue("Error: " + e.getMessage());
+                }
+            }
+
+            // Escribir el workbook modificado de nuevo en el archivo original
+            try (FileOutputStream fileOut = new FileOutputStream(modifiedFile)) {
+                workbook.write(fileOut);
+            } catch (IOException e) {
+                log.error("Error writing modified Excel file: " + e.getMessage());
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+        return modifiedFile;
+    }
+
+    public File loadWorkPositionCategories(MultipartFile file) {
+
+        String bearerToken = this.getBearerToken();
+
+        // Archivo modificado para devolver
+        File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
+
+        // Para abrir el workbook y que se cierre automáticamente al finalizar
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            log.info("Entramos a recorrer el archivo");
+
+            // Nos posicionamos en la primera hoja
+            Sheet sheet = workbook.getSheetAt(0);
+
+            log.info("Estamos con la hoja: " + sheet.getSheetName());
+
+            // Cantidad de filas en la hoja
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            log.info("La cantidad de filas es: " + sheet.getPhysicalNumberOfRows());
+
+            // Crear un estilo de celda con color verde para los datos insertados correctamente
+            CellStyle cellStyle = workbook.createCellStyle();
+            XSSFColor greenColor = new XSSFColor(java.awt.Color.GREEN, null);
+            ((XSSFCellStyle) cellStyle).setFillForegroundColor(greenColor);
+            cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+            // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    // Sacamos el código y el nombre de la compensación
+                    Row row = sheet.getRow(i);
+                    String denomination = (row.getCell(1).getStringCellValue()).trim();
+                    String code = (row.getCell(0).getCellType() == CellType.STRING ? row.getCell(0).getStringCellValue() : "" + (int) row.getCell(0).getNumericCellValue()).trim();
+
+                    log.info("Puesto a consultar con nombre: " + denomination + " \ncon codigo: " + code);
+
+                    // Consultamos si existe la compensación por nombre
+                    DefaultResponse<List<WorkPositionCategoryResponse>> worksPositionsCategoriesRes = worksPositionCategoriesFeign.simplifiedSearch(bearerToken, denomination);
+                    boolean existsWorkByDeno = worksPositionsCategoriesRes.getData().stream()
+                            .filter(comp -> {
+                                log.info("Compensacion que viene del api: " + comp.getDenomination());
+                                log.info("Compensacion del excel: " + denomination);
+                                return comp.getDenomination().equalsIgnoreCase(denomination);
+                            })
+                            .findFirst().map(c -> true).orElse(false);
+
+                    // Si existe, seguimos a la siguiente para no volverla a insertar
+                    if (existsWorkByDeno) {
+                        log.info("Continuamos debido a que esa compensacion ya existe!");
+                        row.getCell(0).setCellStyle(cellStyle);
+                        continue;
+                    }
+
+                    // Consultamos si existe la compensación por el código (no debe existir dos compensaciones con el mismo código)
+                    worksPositionsCategoriesRes = worksPositionCategoriesFeign.simplifiedSearch(bearerToken, code);
+                    boolean existsWorkByCode = worksPositionsCategoriesRes.getData().stream()
+                            .filter(comp -> {
+                                log.info("Compensacion que viene del api con codigo: " + comp.getCode());
+                                log.info("Compensacion del excel con codigo: " + code);
+                                return comp.getCode().equalsIgnoreCase(code);
+                            }).findFirst().map(c -> true).orElse(false);
+
+                    if (existsWorkByCode && !existsWorkByDeno) {
+
+                        // Agregar celda con el mensaje de error en la fila que falló
+                        Row errorRow = sheet.getRow(i);
+                        Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells());
+                        errorCell.setCellValue("Error: exist a compensation-category with the code");
+                        continue;
+                    }
+
+                    // Preparamos el objeto que irá en el body
+                    WorkPositionCategoryRequest workPositionCategoryRequest = new WorkPositionCategoryRequest();
+                    workPositionCategoryRequest.setCode(code);
+                    workPositionCategoryRequest.setDenomination(denomination);
+                    workPositionCategoryRequest.setStatusId(1L);
+
+                    // Realizamos la petición
+                    DefaultResponse<WorkPositionCategoryResponse> wpc = worksPositionCategoriesFeign.createWorkPositionCategory(bearerToken, workPositionCategoryRequest);
+                    workPositionCategoriesMap.put(wpc.getData().getDenomination(), wpc.getData().getId());
+                    row.getCell(0).setCellStyle(cellStyle);
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in Excel: " + e.getMessage());
+
+                    // Agregar celda con el mensaje de error en la fila que falló
+                    Row errorRow = sheet.getRow(i);
+                    Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells() + 1);
+                    errorCell.setCellValue("Error: " + e.getMessage());
+                }
+            }
+
+            // Escribir el workbook modificado de nuevo en el archivo original
+            try (FileOutputStream fileOut = new FileOutputStream(modifiedFile)) {
+                workbook.write(fileOut);
+            } catch (IOException e) {
+                log.error("Error writing modified Excel file: " + e.getMessage());
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+        return modifiedFile;
+    }
+
+    public File loadWorkPeriods(MultipartFile file) {
+
+        String bearerToken = this.getBearerToken();
+
+        List<WorkPeriodTypeResponse> workPeriodTypesList = workPeriodsTypesFeign.findAllWorkPeriodTypes(bearerToken).getData();
+        List<WorkPeriodMaxDurationsResponse> workPeriodMaxDurationsList = workPeriodsMaxDurationsFeign.findAllWorkPeriodsMaxDurations(bearerToken).getData();
+        List<WorkPeriodMaxDailyDurationsResponse> workPeriodMaxDailyDurationsResponseList = workPeriodsMaxDailyDurationsFeign.findAllWorkPeriodsMaxDailyDurations(bearerToken).getData();
+        List<DurationsResponse> durations = durationsFeign.findAllDurations(bearerToken).getData();
+        List<WorkTurnTypesResponse> workturntypes = workTurnTypesFeign.findAllWorkTurnTypes(bearerToken).getData();
+
+        // Archivo modificado para devolver
+        File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
+
+        // Para abrir el workbook y que se cierre automáticamente al finalizar
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            log.info("Entramos a recorrer el archivo");
+
+            // Nos posicionamos en la primera hoja
+            Sheet sheet = workbook.getSheetAt(0);
+
+            log.info("Estamos con la hoja: " + sheet.getSheetName());
+
+            // Cantidad de filas en la hoja
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            log.info("La cantidad de filas es: " + sheet.getPhysicalNumberOfRows());
+
+            // Crear un estilo de celda con color verde para los datos insertados correctamente
+            CellStyle cellStyle = workbook.createCellStyle();
+            XSSFColor greenColor = new XSSFColor(java.awt.Color.GREEN, null);
+            ((XSSFCellStyle) cellStyle).setFillForegroundColor(greenColor);
+            cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+            // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+
+                    List<WorkPeriodDetailRequest> workPeriodDetailList = new ArrayList<>();
+
+                    Row row = sheet.getRow(i);
+
+                    String name = (row.getCell(0).getStringCellValue()).trim();
+                    String periodType = (row.getCell(1).getStringCellValue()).trim();
+                    String keywordMaxDuration = (row.getCell(2).getStringCellValue()).trim();
+                    Integer maxDailyDuration = (row.getCell(3) == null) ? null : (int)row.getCell(3).getNumericCellValue();
+
+                    log.info("Periodo de trabajo a consultar con nombre: " + name);
+
+                    // Consultamos si existe el periodo de trabajo por nombre
+                    DefaultResponse<WorkPeriodResponse> workPeriodResponse = workPeriodsFeign.findOneByName(bearerToken, name);
+                    boolean existsWorkPeriod = workPeriodResponse.getData() != null &&
+                            workPeriodResponse.getData().getName().equalsIgnoreCase(name);
+
+                    // Si existe, seguimos a la siguiente para no volverla a insertar
+                    if (existsWorkPeriod) {
+                        log.info("Continuamos debido a que existe una jornada laboral con ese nombre!");
+                        row.getCell(0).setCellStyle(cellStyle);
+                        continue;
+                    }
+
+                    Long idWorkPeriodType;
+                    Long idWorkPeriodMaxDailyDuration = null;
+                    if(periodType.equalsIgnoreCase("Horario Fijo")) {
+
+                        idWorkPeriodType = workPeriodTypesList
+                                .stream()
+                                .filter(wpt -> wpt.getName().equalsIgnoreCase("Fixed Scheduled/Regular shift"))
+                                .map(wpt -> wpt.getId()).findFirst().get();
+
+                        log.info("El valor de max daily duration es: " + maxDailyDuration);
+
+                        if(maxDailyDuration == 24) {
+
+                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
+                                    .stream()
+                                    .filter(wpmd -> wpmd.getDuration() == 24)
+                                    .map(wpmd -> wpmd.getId()).findFirst().get();
+
+                        } else if(maxDailyDuration == 12) {
+
+                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
+                                    .stream()
+                                    .filter(wpt -> wpt.getDuration() == 12)
+                                    .map(wpt -> wpt.getId()).findFirst().get();
+
+                        } else if(maxDailyDuration == 8) {
+
+                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
+                                    .stream()
+                                    .filter(wpt -> wpt.getDuration() == 8)
+                                    .map(wpt -> wpt.getId()).findFirst().get();
+
+                        } else if(maxDailyDuration == 6) {
+
+                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
+                                    .stream()
+                                    .filter(wpt -> wpt.getDuration() == 6)
+                                    .map(wpt -> wpt.getId()).findFirst().get();
+
+                        } else if(maxDailyDuration == 4) {
+
+                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
+                                    .stream()
+                                    .filter(wpt -> wpt.getDuration() == 4)
+                                    .map(wpt -> wpt.getId()).findFirst().get();
+
+                        } else {
+                            throw new Exception("There is no max_daily_duration");
+                        }
+
+                    } else if(periodType.equalsIgnoreCase("Frecuencia Variable")) {
+
+                        idWorkPeriodType = workPeriodTypesList
+                                .stream()
+                                .filter(wpt -> wpt.getName().equalsIgnoreCase("Variable frecuency shift"))
+                                .map(wpt -> wpt.getId()).findFirst().get();
+
+                    } else {
+                        throw new Exception("There is no period with that name");
+                    }
+
+                    Long idWorkPeriodMaxDuration;
+                    if(keywordMaxDuration.equalsIgnoreCase("48HWFT")) {
+
+                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
+                                .stream()
+                                .filter(wpmd -> wpmd.getKeyword().equalsIgnoreCase("48HWFT"))
+                                .map(wpmd -> wpmd.getId()).findFirst().get();
+
+                    } else if(keywordMaxDuration.equalsIgnoreCase("40HWFT")) {
+
+                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
+                                .stream()
+                                .filter(wpt -> wpt.getName().equalsIgnoreCase("40HWFT"))
+                                .map(wpt -> wpt.getId()).findFirst().get();
+
+                    } else if(keywordMaxDuration.equalsIgnoreCase("30HWPT")) {
+
+                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
+                                .stream()
+                                .filter(wpmd -> wpmd.getKeyword().equalsIgnoreCase("30HWPT"))
+                                .map(wpmd -> wpmd.getId()).findFirst().get();
+
+                    } else if(keywordMaxDuration.equalsIgnoreCase("48HWST")) {
+
+                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
+                                .stream()
+                                .filter(wpt -> wpt.getName().equalsIgnoreCase("48HWST"))
+                                .map(wpt -> wpt.getId()).findFirst().get();
+
+                    } else {
+                        throw new Exception("There is no max_duration with that keyword");
+                    }
+
+                    // Nos posicionamos en la segunda hoja donde estan los tunos de trabajo
+                    Sheet workTurnsSheet = workbook.getSheetAt(1);
+
+                    log.info("Estamos con la hoja: " + workTurnsSheet.getSheetName());
+
+                    // Cantidad de filas en la hoja
+                    int numberOfWorkTurns = workTurnsSheet.getPhysicalNumberOfRows();
+
+                    log.info("La cantidad de filas de turnos de trabajo: " + workTurnsSheet.getPhysicalNumberOfRows());
+
+                    // Crear un estilo de celda con color verde para los datos insertados correctamente
+//                    CellStyle cellStyle = workbook.createCellStyle();
+//                    XSSFColor greenColor = new XSSFColor(Color.GREEN, null);
+//                    ((XSSFCellStyle) cellStyle).setFillForegroundColor(greenColor);
+//                    cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+                    // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
+                    for (int j = 1; j < numberOfWorkTurns; j++) {
+
+                        Row workTurnRow = workTurnsSheet.getRow(j);
+                        String nameWorkPeriod = workTurnRow.getCell(0).getStringCellValue();
+                        Date dateFrom = null;
+                        Date dateTo = null;
+                        String from = "";
+                        String to = "";
+
+                        //Verificamos si el nombre coincide sino continuamos
+                        if(!nameWorkPeriod.equalsIgnoreCase(name)) {
+                            continue;
+                        }
+
+                        if(periodType.equalsIgnoreCase("Horario Fijo")) {
+                            dateFrom = workTurnRow.getCell(1).getDateCellValue();
+                            dateTo = workTurnRow.getCell(2).getDateCellValue();
+                        }
+
+                        Integer dayOfWeek = (int) workTurnRow.getCell(3).getNumericCellValue();
+                        String workTurnType = workTurnRow.getCell(4).getStringCellValue();
+                        Integer duration = (workTurnRow.getCell(5) == null) ? 0 : (int) workTurnRow.getCell(5).getNumericCellValue();
+
+                        Long idWorkTurnType = workturntypes
+                                .stream()
+                                .filter(wtt -> wtt.getName().equalsIgnoreCase(workTurnType))
+                                .map(wtt -> wtt.getId()).findFirst().orElseThrow();
+
+                        Long idDuration = null;
+                        if(duration != 0){
+                            idDuration = durations
+                                    .stream()
+                                    .filter(d -> d.getAmount() == duration)
+                                    .map(d -> d.getId()).findFirst().orElseThrow();
+                        }
+
+
+                        // Formatear la hora
+                        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm");
+
+                        if(dateFrom != null && dateTo != null) {
+                            from = timeFormat.format(dateFrom);
+                            to = timeFormat.format(dateTo);
+                        }
+
+                        workPeriodDetailList.add(new WorkPeriodDetailRequest(
+                                from, to, dayOfWeek,
+                                idWorkTurnType, idDuration));
+
+                        workTurnRow.getCell(0).setCellStyle(cellStyle);
+                    }
+
+                    // Preparamos el objeto que irá en el body
+                    WorkPeriodRequest workPeriodRequest = new WorkPeriodRequest();
+                    workPeriodRequest.setName(name);
+                    workPeriodRequest.setWorkPeriodTypeId(idWorkPeriodType);
+                    workPeriodRequest.setWorkTurns(workPeriodDetailList);
+                    workPeriodRequest.setWorkTurns(workPeriodDetailList);
+                    workPeriodRequest.setWorkPeriodMaxDurationId(idWorkPeriodMaxDuration);
+                    workPeriodRequest.setWorkPeriodMaxDailyDurationId(idWorkPeriodMaxDailyDuration);
+
+                    log.info("LLenamos todos los workPeriod con el id nesario: \nName: " + workPeriodRequest.getName()
+                            + "\nTipo de periodo de trabajo: " + idWorkPeriodType
+                            + "\nMaximo de duracion id: " + idWorkPeriodMaxDuration
+                            + "\nMaximo de duracion por dia id: " + idWorkPeriodMaxDailyDuration);
+
+                    // Realizamos la petición
+                    DefaultResponse<WorkPeriodResponse> wpr = workPeriodsFeign.createWorkPeriods(bearerToken, workPeriodRequest);
+                    workPeriodsMap.put(wpr.getData().getName(), wpr.getData().getId());
+                    row.getCell(0).setCellStyle(cellStyle);
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in Excel: " + e.getMessage());
+
+                    // Agregar celda con el mensaje de error en la fila que falló
+                    Row errorRow = sheet.getRow(i);
+                    Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells() + 1);
+                    errorCell.setCellValue("Error: " + e.getMessage());
+                }
+            }
+
+            // Escribir el workbook modificado de nuevo en el archivo original
+            try (FileOutputStream fileOut = new FileOutputStream(modifiedFile)) {
+                workbook.write(fileOut);
+            } catch (IOException e) {
+                log.error("Error writing modified Excel file: " + e.getMessage());
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+        return modifiedFile;
+    }
+
+    private String getBearerToken() {
+        // Realizamos el login para obtener un token
+        LoginRequest loginRequest = new LoginRequest();
+        loginRequest.setEmail(email);
+        loginRequest.setPassword(password);
+        return  BEARER.concat(loginFeign.login(loginRequest).getData().getToken());
     }
 }

@@ -24,52 +24,8 @@ import java.io.IOException;
 @RequiredArgsConstructor
 public class ControllerMigration {
 
-    private static final String APPLICATION_EXCEL = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    private static final String ATTACHMENT_FILENAME = "attachment; filename=";
-    private static final String ERROR_EXCEL = "Error returning modified Excel file: ";
+
     private final ServiceMigration serviceMigration;
 
-    @PostMapping("/load-compensations")
-    public ResponseEntity<InputStreamResource> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = serviceMigration.cargarCompensaciones(file);
-        return  processFile(modifiedFile);
-    }
-
-    @PostMapping("/load-tabs")
-    public ResponseEntity<InputStreamResource> loadTabs(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = serviceMigration.loadTabs(file);
-        return  processFile(modifiedFile);
-    }
-
-    @PostMapping("/load-work-position-categories")
-    public ResponseEntity<InputStreamResource> loadWorkPositionCategories(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = serviceMigration.loadWorkPositionCategories(file);
-        return  processFile(modifiedFile);
-    }
-
-    @PostMapping("/load-work-periods")
-    public ResponseEntity<InputStreamResource> loadWorkPoeriods(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = serviceMigration.loadWorkPeriods(file);
-        return  processFile(modifiedFile);
-    }
-
-    private ResponseEntity<InputStreamResource> processFile(File modifiedFile) {
-
-        try {
-            InputStreamResource resource = new InputStreamResource(new FileInputStream(modifiedFile));
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.add(HttpHeaders.CONTENT_DISPOSITION, ATTACHMENT_FILENAME + modifiedFile.getName());
-
-            return ResponseEntity.ok()
-                    .headers(headers)
-                    .contentLength(modifiedFile.length())
-                    .contentType(MediaType.parseMediaType(APPLICATION_EXCEL))
-                    .body(resource);
-        } catch (IOException e) {
-            log.error(ERROR_EXCEL + " {}", e.getMessage());
-            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-    }
 
 }

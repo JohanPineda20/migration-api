@@ -15,5 +15,5 @@ public interface WorksPositionCategoriesFeign {
     DefaultResponse<List<WorkPositionCategoryResponse>> simplifiedSearch(@RequestHeader("Authorization") String token, @RequestParam String search);
 
     @PostMapping
-    void createWorkPositionCategory(@RequestHeader("Authorization") String token, @RequestBody WorkPositionCategoryRequest workPositionCategoryRequest);
+    DefaultResponse<WorkPositionCategoryResponse> createWorkPositionCategory(@RequestHeader("Authorization") String token, @RequestBody WorkPositionCategoryRequest workPositionCategoryRequest);
 }

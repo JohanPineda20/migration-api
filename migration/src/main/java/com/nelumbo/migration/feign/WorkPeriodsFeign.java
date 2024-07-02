@@ -13,5 +13,5 @@ public interface WorkPeriodsFeign {
     DefaultResponse<WorkPeriodResponse> findOneByName(@RequestHeader("Authorization") String token, @RequestParam String name);
 
     @PostMapping
-    void createWorkPeriods(@RequestHeader("Authorization") String token, @RequestBody WorkPeriodRequest workPeriodRequest);
+    DefaultResponse<WorkPeriodResponse> createWorkPeriods(@RequestHeader("Authorization") String token, @RequestBody WorkPeriodRequest workPeriodRequest);
 }
