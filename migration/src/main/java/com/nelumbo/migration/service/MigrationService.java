@@ -363,7 +363,8 @@ public class MigrationService {
                     Long workPositionId = workPositionResponseMap.get(row.getCell(25).getStringCellValue());
                     if (workPositionId == null) throw new RuntimeException("work position ".concat(row.getCell(25).getStringCellValue().concat(" not found")));
                     profileRequest.setWorkPositionId(workPositionId);
-                    profileFeign.createProfile(bearerToken, profileRequest);
+                    DefaultResponse<ProfileResponse> profileResponse = profileFeign.createProfile(bearerToken, profileRequest);
+
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getMessage());
                 }
@@ -373,12 +374,33 @@ public class MigrationService {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
+    public void migrateStoreWorkPeriods(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
 
-    private DefaultResponse<LoginResponse> login() {
-        LoginRequest loginRequest = new LoginRequest();
-        loginRequest.setEmail(email);
-        loginRequest.setPassword(password);
-        return loginFeign.login(loginRequest);
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheetAt(5);
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+                    StoreWorkPeriodRequest storeWorkPeriodRequest = new StoreWorkPeriodRequest();
+                    String [] jornadas = row.getCell(1).getStringCellValue().split(",");
+                    Long storeId = storeResponseMap.get(row.getCell(0).getStringCellValue());
+                    if (storeId == null) throw new RuntimeException("Store ".concat(row.getCell(0).getStringCellValue()).concat(" not found"));
+                    for (String jornada:jornadas) {
+                        storeWorkPeriodRequest.setWorkPeriodId(workPeriodsMap.get(jornada));
+                        storeFeign.createStoreWorkPeriods(bearerToken, storeWorkPeriodRequest, storeId);
+                    }
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_jornadas: " + e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
     }
 
     public File cargarCompensaciones(MultipartFile file) {

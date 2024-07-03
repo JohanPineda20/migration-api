@@ -59,7 +59,11 @@ public class MigrationController {
         migrationService.migrateProfiles(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
-
+    @PostMapping("stores-work-periods")
+    public ResponseEntity<Void> migrateStoreWorkPeriods(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateStoreWorkPeriods(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
     @PostMapping("/load-compensations")
     public ResponseEntity<InputStreamResource> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file) {
         File modifiedFile = migrationService.cargarCompensaciones(file);

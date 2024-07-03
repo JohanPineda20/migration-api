@@ -2,6 +2,7 @@ package com.nelumbo.migration.feign;
 
 import com.nelumbo.migration.feign.dto.requests.StoreDetailRequest;
 import com.nelumbo.migration.feign.dto.requests.StoreRequest;
+import com.nelumbo.migration.feign.dto.requests.StoreWorkPeriodRequest;
 import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import com.nelumbo.migration.feign.dto.responses.StoreDetailResponse;
 import com.nelumbo.migration.feign.dto.responses.StoreResponse;
@@ -20,4 +21,8 @@ public interface StoreFeign {
     DefaultResponse<StoreDetailResponse> createStoreDetails(@RequestHeader("Authorization") String token,
                                                             @RequestBody StoreDetailRequest storeDetailRequest,
                                                             @PathVariable Long storeId);
+    @PostMapping(path = "/{storeId}/work-periods")
+    void createStoreWorkPeriods(@RequestHeader("Authorization") String token,
+                                @RequestBody StoreWorkPeriodRequest storeWorkPeriodRequest,
+                                @PathVariable Long storeId);
 }
