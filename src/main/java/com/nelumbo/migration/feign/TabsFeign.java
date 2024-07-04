@@ -15,5 +15,5 @@ public interface TabsFeign {
     DefaultResponse<List<TabsResponse>> simplifiedSearch(@RequestHeader("Authorization") String token, @RequestParam String search);
 
     @PostMapping
-    void createTab(@RequestHeader("Authorization") String token, @RequestBody TabsRequest tabsRequest);
+    DefaultResponse<TabsResponse> createTab(@RequestHeader("Authorization") String token, @RequestBody TabsRequest tabsRequest);
 }

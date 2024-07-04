@@ -15,5 +15,5 @@ public interface CompCategoriesFeign {
     DefaultResponse<List<CompCategoriesResponse>> simplifiedSearch(@RequestHeader("Authorization") String token, @RequestParam String search);
 
     @PostMapping
-    void createCompensationCategories(@RequestHeader("Authorization") String token, @RequestBody CompCategoriesRequest compCategory);
+    DefaultResponse<CompCategoriesResponse> createCompensationCategories(@RequestHeader("Authorization") String token, @RequestBody CompCategoriesRequest compCategory);
 }

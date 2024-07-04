@@ -6,7 +6,6 @@ import com.nelumbo.migration.feign.dto.requests.*;
 import com.nelumbo.migration.feign.dto.responses.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.math3.exception.NullArgumentException;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.apache.poi.xssf.usermodel.XSSFColor;
@@ -45,15 +44,16 @@ public class MigrationService {
     private final WorkPeriodsMaxDailyDurationsFeign workPeriodsMaxDailyDurationsFeign;
     private final DurationsFeign durationsFeign;
     private final WorkTurnTypesFeign workTurnTypesFeign;
-    private final ModelNamesFeign modelNamesFeign;
 
+    Map<String, Long> compensationCategoriesResponseMap = new ConcurrentHashMap<>();
+    Map<String, Long> compensationTabResponseMap = new ConcurrentHashMap<>();
     Map<String, Long> costCenterResponseMap = new ConcurrentHashMap<>();
     Map<String, Long> storeResponseMap = new ConcurrentHashMap<>();
     Map<String,Map<String, Long>> storeDetailResponseMap = new ConcurrentHashMap<>();
     Map<String,Long> workPositionResponseMap = new ConcurrentHashMap<>();
     Map<String,Long> workPeriodsMap = new ConcurrentHashMap<>();
     Map<String,Long> workPositionCategoriesMap = new ConcurrentHashMap<>();
-
+    
     @Value("${email}")
     private String email;
 
@@ -71,7 +71,7 @@ public class MigrationService {
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
-            Sheet sheet = workbook.getSheetAt(0);
+            Sheet sheet = workbook.getSheet("centro de costos");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -116,7 +116,7 @@ public class MigrationService {
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
-            Sheet sheet = workbook.getSheetAt(1);
+            Sheet sheet = workbook.getSheet("sucursales");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -167,7 +167,7 @@ public class MigrationService {
         String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = workbook.getSheetAt(2);
+            Sheet sheet = workbook.getSheet("sucursal_org_entities");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -260,7 +260,7 @@ public class MigrationService {
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
-            Sheet sheet = workbook.getSheetAt(3);
+            Sheet sheet = workbook.getSheet("cargo");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -279,6 +279,14 @@ public class MigrationService {
                     workPositionRequest.setCostCenterId(costCenterId);
                     DefaultResponse<WorkPositionDetailResponse> workPositionDetailResponse = workPositionFeign.createWorkPosition(bearerToken, workPositionRequest);
                     workPositionResponseMap.put(workPositionDetailResponse.getData().getWorkPosition().getDenomination(), workPositionDetailResponse.getData().getWorkPosition().getId());
+                    
+                    WorkPositionUpdateRequest wPUReq = WorkPositionUpdateRequest.builder()
+                            .compCategoryId(compensationCategoriesResponseMap.get(row.getCell(7).getStringCellValue()))
+                            .compTabId(compensationTabResponseMap.get(row.getCell(8).getStringCellValue()))
+                            .minSalary((long)row.getCell(9).getNumericCellValue())
+                            .build();
+
+                    workPositionFeign.updateWorkPosition(bearerToken, wPUReq, workPositionDetailResponse.getData().getWorkPosition().getId());
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet cargos: " + e.getMessage());
                 }
@@ -294,7 +302,7 @@ public class MigrationService {
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
-            Sheet sheet = workbook.getSheetAt(4);
+            Sheet sheet = workbook.getSheet("perfiles");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -380,7 +388,7 @@ public class MigrationService {
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
-            Sheet sheet = workbook.getSheetAt(5);
+            Sheet sheet = workbook.getSheet("sucursal_jornadas");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -404,7 +412,7 @@ public class MigrationService {
         }
     }
 
-    public File cargarCompensaciones(MultipartFile file) {
+    public File loadCompensationsCategories(MultipartFile file) {
 
         String bearerToken = this.getBearerToken();
 
@@ -527,7 +535,8 @@ public class MigrationService {
                     compCategories.setStatusId(idEstatus);
 
                     // Realizamos la petición
-                    compCategoriesFeign.createCompensationCategories(bearerToken, compCategories);
+                    CompCategoriesResponse cPRes = compCategoriesFeign.createCompensationCategories(bearerToken, compCategories).getData();
+                    this.compensationCategoriesResponseMap.put(cPRes.getCode(), cPRes.getId());
                     row.getCell(0).setCellStyle(cellStyle);
                 } catch (Exception e) {
                     this.logRowError(i, e);
@@ -696,7 +705,8 @@ public class MigrationService {
                     tabsRequest.setFieldsValues(fieldsValues);
 
                     // Realizamos la petición
-                    tabsFeign.createTab(bearerToken, tabsRequest);
+                    TabsResponse tabRes = tabsFeign.createTab(bearerToken, tabsRequest).getData();
+                    compensationTabResponseMap.put(tabRes.getCode(), tabRes.getId());
                     row.getCell(0).setCellStyle(cellStyle);
                 } catch (Exception e) {
                     this.logRowError(i, e);
@@ -941,17 +951,17 @@ public class MigrationService {
                     log.info("Periodo de trabajo a consultar con nombre: " + name);
 
                     // Consultamos si existe el periodo de trabajo por nombre
-                    DefaultResponse<WorkPeriodResponse> workPeriodResponse = workPeriodsFeign.findOneByName(bearerToken, name);
-                    boolean existsWorkPeriod = workPeriodResponse.getData() != null &&
-                            workPeriodResponse.getData().getName().equalsIgnoreCase(name);
+                    // DefaultResponse<WorkPeriodResponse> workPeriodResponse = workPeriodsFeign.findOneByName(bearerToken, name);
+                    // boolean existsWorkPeriod = workPeriodResponse.getData() != null &&
+                    //         workPeriodResponse.getData().getName().equalsIgnoreCase(name);
 
-                    // Si existe, seguimos a la siguiente para no volverla a insertar
-                    if (existsWorkPeriod) {
-                        log.info("Continuamos debido a que existe una jornada laboral con ese nombre!");
-                        workPeriodsMap.put(workPeriodResponse.getData().getName(), workPeriodResponse.getData().getId());
-                        row.getCell(cellName).setCellStyle(cellStyle);
-                        continue;
-                    }
+                    // // Si existe, seguimos a la siguiente para no volverla a insertar
+                    // if (existsWorkPeriod) {
+                    //     log.info("Continuamos debido a que existe una jornada laboral con ese nombre!");
+                    //     workPeriodsMap.put(workPeriodResponse.getData().getName(), workPeriodResponse.getData().getId());
+                    //     row.getCell(cellName).setCellStyle(cellStyle);
+                    //     continue;
+                    // }
 
                     Long idWorkPeriodType;
                     Long idWorkPeriodMaxDailyDuration = null;
@@ -964,44 +974,10 @@ public class MigrationService {
 
                         log.info("El valor de max daily duration es: " + maxDailyDuration);
 
-                        if(maxDailyDuration == 24) {
-
-                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
+                        idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
                                     .stream()
-                                    .filter(wpmd -> wpmd.getDuration() == 24)
-                                    .map(WorkPeriodMaxDailyDurationsResponse::getId).findFirst().orElseThrow();
-
-                        } else if(maxDailyDuration == 12) {
-
-                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
-                                    .stream()
-                                    .filter(wpt -> wpt.getDuration() == 12)
-                                    .map(WorkPeriodMaxDailyDurationsResponse::getId).findFirst().orElseThrow();
-
-                        } else if(maxDailyDuration == 8) {
-
-                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
-                                    .stream()
-                                    .filter(wpt -> wpt.getDuration() == 8)
-                                    .map(WorkPeriodMaxDailyDurationsResponse::getId).findFirst().orElseThrow();
-
-                        } else if(maxDailyDuration == 6) {
-
-                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
-                                    .stream()
-                                    .filter(wpt -> wpt.getDuration() == 6)
-                                    .map(WorkPeriodMaxDailyDurationsResponse::getId).findFirst().orElseThrow();
-
-                        } else if(maxDailyDuration == 4) {
-
-                            idWorkPeriodMaxDailyDuration = workPeriodMaxDailyDurationsResponseList
-                                    .stream()
-                                    .filter(wpt -> wpt.getDuration() == 4)
-                                    .map(WorkPeriodMaxDailyDurationsResponse::getId).findFirst().orElseThrow();
-
-                        } else {
-                            throw new Exception("There is no max_daily_duration");
-                        }
+                                    .filter(wpmd -> wpmd.getDuration() == maxDailyDuration)
+                                    .map(WorkPeriodMaxDailyDurationsResponse::getId).findFirst().orElseThrow(() -> new Exception("There is no max_daily_duration"));
 
                     } else if(periodType.equalsIgnoreCase("Frecuencia Variable")) {
 
@@ -1019,51 +995,13 @@ public class MigrationService {
                             .filter(wpmd -> wpmd.getKeyword().equalsIgnoreCase(keywordMaxDuration))
                             .map(WorkPeriodMaxDurationsResponse::getId).findFirst().orElseThrow(() -> new Exception("There is no max_duration with that keyword"));
 
-                    /*if(keywordMaxDuration.equalsIgnoreCase("48HWFT")) {
-
-                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
-                                .stream()
-                                .filter(wpmd -> wpmd.getKeyword().equalsIgnoreCase("48HWFT"))
-                                .map(WorkPeriodMaxDurationsResponse::getId).findFirst().orElseThrow();
-
-                    } else if(keywordMaxDuration.equalsIgnoreCase("40HWFT")) {
-
-                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
-                                .stream()
-                                .filter(wpt -> wpt.getName().equalsIgnoreCase("40HWFT"))
-                                .map(WorkPeriodMaxDurationsResponse::getId).findFirst().orElseThrow();
-
-                    } else if(keywordMaxDuration.equalsIgnoreCase("30HWPT")) {
-
-                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
-                                .stream()
-                                .filter(wpmd -> wpmd.getKeyword().equalsIgnoreCase("30HWPT"))
-                                .map(WorkPeriodMaxDurationsResponse::getId).findFirst().orElseThrow();
-
-                    } else if(keywordMaxDuration.equalsIgnoreCase("48HWST")) {
-
-                        idWorkPeriodMaxDuration = workPeriodMaxDurationsList
-                                .stream()
-                                .filter(wpt -> wpt.getName().equalsIgnoreCase("48HWST"))
-                                .map(WorkPeriodMaxDurationsResponse::getId).findFirst().orElseThrow();
-
-                    } else {
-                        throw new Exception("There is no max_duration with that keyword");
-                    }*/
-
                     // Nos posicionamos en la segunda hoja donde estan los tunos de trabajo
-                    //Sheet workTurnsSheet = workbook.getSheetAt(1);
                     Sheet workTurnsSheet = workbook.getSheet("work_turns");
 
-                    log.info("Estamos con la hoja: " + workTurnsSheet.getSheetName());
-
-                    // Cantidad de filas en la hoja
-                    int numberOfWorkTurns = workTurnsSheet.getPhysicalNumberOfRows();
-
-                    log.info("La cantidad de filas de turnos de trabajo: " + workTurnsSheet.getPhysicalNumberOfRows());
+                    this.logSheetNameNumberOfRows(workTurnsSheet);
 
                     // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
-                    for (int j = 1; j < numberOfWorkTurns; j++) {
+                    for (int j = 1; j < workTurnsSheet.getPhysicalNumberOfRows(); j++) {
 
                         Row workTurnRow = workTurnsSheet.getRow(j);
                         String nameWorkPeriod = workTurnRow.getCell(0).getStringCellValue();
@@ -1099,7 +1037,6 @@ public class MigrationService {
                                     .map(d -> d.getId()).findFirst().orElseThrow();
                         }
 
-
                         // Formatear la hora
                         SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm");
 
@@ -1134,22 +1071,14 @@ public class MigrationService {
                     workPeriodsMap.put(wpr.getData().getName(), wpr.getData().getId());
                     row.getCell(0).setCellStyle(cellStyle);
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in Excel: " + e.getMessage());
-
-                    // Agregar celda con el mensaje de error en la fila que falló
-                    Row errorRow = sheet.getRow(i);
-                    Cell errorCell = errorRow.createCell(errorRow.getPhysicalNumberOfCells() + 1);
-                    errorCell.setCellValue("Error: " + e.getMessage());
+                    this.logRowError(i, e);
+                    this.agregarCeldaError(sheet.getRow(i), e);
                 }
             }
 
-            // Escribir el workbook modificado de nuevo en el archivo original
-            try (FileOutputStream fileOut = new FileOutputStream(modifiedFile)) {
-                workbook.write(fileOut);
-            } catch (IOException e) {
-                log.error("Error writing modified Excel file: " + e.getMessage());
-            }
+            modifiedFile = this.createModifiedWorkbook(workbook, file);
         } catch (Exception e) {
+            this.logProcessingExcelFile(e);
             log.error("Error processing Excel file: " + e.getMessage());
         }
         return modifiedFile;

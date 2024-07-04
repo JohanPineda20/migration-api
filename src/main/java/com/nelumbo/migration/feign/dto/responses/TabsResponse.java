@@ -7,6 +7,8 @@ import lombok.Setter;
 @Setter
 public class TabsResponse {
 
+    private Long id;
+
     private String code;
 
     private String denomination;

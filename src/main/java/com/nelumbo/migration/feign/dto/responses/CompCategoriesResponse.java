@@ -7,6 +7,8 @@ import lombok.Setter;
 @Setter
 public class CompCategoriesResponse {
 
+    private Long id;
+
     private String code;
 
     private String denomination;
