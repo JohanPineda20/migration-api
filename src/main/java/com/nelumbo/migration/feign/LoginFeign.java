@@ -7,7 +7,7 @@ import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-@FeignClient(name = "login", url="localhost:8080/core-api/v1/login")
+@FeignClient(name = "login", url="${hr-api}/login")
 public interface LoginFeign {
     @PostMapping
     DefaultResponse<LoginResponse> login(@RequestBody LoginRequest loginRequest);

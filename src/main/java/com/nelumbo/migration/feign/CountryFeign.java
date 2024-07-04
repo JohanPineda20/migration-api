@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.util.List;
 
-@FeignClient(name= "country", url="localhost:8080/core-api/v1/countries")
+@FeignClient(name= "country", url="${hr-api}/countries")
 public interface CountryFeign {
     @GetMapping
     DefaultResponse<List<CountryResponse>> findAll();

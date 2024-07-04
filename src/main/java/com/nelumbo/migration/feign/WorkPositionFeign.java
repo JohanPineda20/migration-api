@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 
-@FeignClient(name = "work-positions", url="localhost:8080/core-api/v1/work-positions")
+@FeignClient(name = "work-positions", url="${hr-api}/work-positions")
 public interface WorkPositionFeign {
     @PostMapping
     DefaultResponse<WorkPositionDetailResponse> createWorkPosition(@RequestHeader("Authorization") String token,

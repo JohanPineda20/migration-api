@@ -272,10 +272,11 @@ public class MigrationService {
                     workPositionRequest.setDenomination(row.getCell(1).getStringCellValue());
                     workPositionRequest.setAuthorizedStaff((long)row.getCell(2).getNumericCellValue());
                     workPositionRequest.setStatusId(1L);
-                    workPositionRequest.setWorkPosCatId(workPositionCategoriesMap.get(row.getCell(3).getStringCellValue()));//workPosCatResponseMap.get(row.getCell(3).getStringCellValue())
+                    workPositionRequest.setWorkPosCatId(workPositionCategoriesMap.get(row.getCell(3).getStringCellValue()));
                     workPositionRequest.setStoreId(storeResponseMap.get(row.getCell(4).getStringCellValue()));
                     workPositionRequest.setStoreOrganizativeId(storeDetailResponseMap.get(row.getCell(4).getStringCellValue()).get(row.getCell(5).getStringCellValue()));
-
+                    Long costCenterId = row.getCell(6) != null ? costCenterResponseMap.get(row.getCell(6).getStringCellValue()) : null;
+                    workPositionRequest.setCostCenterId(costCenterId);
                     DefaultResponse<WorkPositionDetailResponse> workPositionDetailResponse = workPositionFeign.createWorkPosition(bearerToken, workPositionRequest);
                     workPositionResponseMap.put(workPositionDetailResponse.getData().getWorkPosition().getDenomination(), workPositionDetailResponse.getData().getWorkPosition().getId());
                 } catch (Exception e) {

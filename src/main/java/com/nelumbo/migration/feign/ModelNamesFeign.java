@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@FeignClient(name= "modelNames", url="localhost:8080/core-api/v1/model-names")
+@FeignClient(name= "modelNames", url="${hr-api}/model-names")
 public interface ModelNamesFeign {
 
     @GetMapping("/{keyword}}/model-fields")

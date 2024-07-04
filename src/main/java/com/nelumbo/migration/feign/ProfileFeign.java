@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
-@FeignClient(name = "profiles", url="localhost:8080/core-api/v1/profiles")
+@FeignClient(name = "profiles", url="${hr-api}/profiles")
 public interface ProfileFeign {
     @PostMapping
     DefaultResponse<ProfileResponse> createProfile(@RequestHeader("Authorization") String token,

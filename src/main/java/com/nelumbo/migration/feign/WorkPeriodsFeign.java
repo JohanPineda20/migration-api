@@ -6,7 +6,7 @@ import com.nelumbo.migration.feign.dto.responses.WorkPeriodResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 
-@FeignClient(name= "workPeriods", url="localhost:8080/core-api/v1/work-periods")
+@FeignClient(name= "workPeriods", url="${hr-api}/work-periods")
 public interface WorkPeriodsFeign {
 
     @GetMapping("/findone-by-name")

@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.util.List;
 
-@FeignClient(name= "workPeriodsMaxDurations", url="localhost:8080/core-api/v1/work-period-max-durations")
+@FeignClient(name= "workPeriodsMaxDurations", url="${hr-api}/work-period-max-durations")
 public interface WorkPeriodsMaxDurationsFeign {
 
     @GetMapping

@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 
-@FeignClient(name = "store", url="localhost:8080/core-api/v1/stores")
+@FeignClient(name = "store", url="${hr-api}/stores")
 public interface StoreFeign {
     @PostMapping
     DefaultResponse<StoreResponse> createStore(@RequestHeader("Authorization") String token,

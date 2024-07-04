@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@FeignClient(name= "workPositionsCategories", url="localhost:8080/core-api/v1/work-position-categories")
+@FeignClient(name= "workPositionsCategories", url="${hr-api}/work-position-categories")
 public interface WorksPositionCategoriesFeign {
 
     @GetMapping("/simplified-search")

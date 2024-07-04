@@ -17,4 +17,5 @@ public class WorkPositionRequest {
     private Long workPosCatId;
     private Long storeOrganizativeId;
     private Long storeId;
+    private Long costCenterId;
 }

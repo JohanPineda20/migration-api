@@ -7,6 +7,8 @@ spring:
   output:
     ansi:
       enabled: ALWAYS
+  profiles:
+    active: dev
 
 email: ${EMAIL}
 password: ${PASSWORD}
@@ -14,4 +16,3 @@ password: ${PASSWORD}
 logging:
   file:
     name: ./migration.log
-

@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.util.List;
 
-@FeignClient(name= "durations", url="localhost:8080/core-api/v1/durations")
+@FeignClient(name= "durations", url="${hr-api}/durations")
 public interface DurationsFeign {
 
     @GetMapping

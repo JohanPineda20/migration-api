@@ -1,0 +1,1 @@
+hr-api: ${HR-API:http://localhost:8080/core-api/v1}
