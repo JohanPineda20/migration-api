@@ -40,3 +40,6 @@ out/
 *.log
 *.xlsx
 *.gz
+
+##Archivo de variables de entorno
+.env
