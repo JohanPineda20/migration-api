@@ -5,8 +5,6 @@ import com.nelumbo.migration.feign.dto.requests.ProfileRequest;
 import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import com.nelumbo.migration.feign.dto.responses.ProfileResponse;
 import org.springframework.cloud.openfeign.FeignClient;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
 @FeignClient(name = "profiles", url="${hr-api}/profiles")

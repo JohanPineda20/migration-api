@@ -1,9 +1,14 @@
 package com.nelumbo.migration.service;
 
+import com.nelumbo.migration.exceptions.ErrorResponseException;
+import com.nelumbo.migration.exceptions.NullCellException;
 import com.nelumbo.migration.feign.*;
 import com.nelumbo.migration.feign.dto.*;
 import com.nelumbo.migration.feign.dto.requests.*;
 import com.nelumbo.migration.feign.dto.responses.*;
+import com.nelumbo.migration.feign.dto.responses.error.ErrorResponse;
+
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
@@ -416,7 +421,7 @@ public class MigrationService {
 
         String bearerToken = this.getBearerToken();
 
-        File modifiedFile = null;
+        File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
@@ -436,10 +441,10 @@ public class MigrationService {
             Integer cellStatus = null;
 
             for (int i = 0; i < rowNames.getPhysicalNumberOfCells(); i++) {
+                
                 Cell columnName = rowNames.getCell(i);
-
-                if(columnName == null) {
-                    throw new IllegalArgumentException("ColumnName can not be null, column: " + i);
+                if (columnName == null) {
+                    cellCode = i;
                 } else if (columnName.getStringCellValue().equalsIgnoreCase("code")) {
                     cellCode = i;
                 } else if(columnName.getStringCellValue().equalsIgnoreCase("denomination")) {
@@ -452,7 +457,11 @@ public class MigrationService {
             }
 
             if(cellCode == null || cellDenomination == null) {
-                throw new IllegalArgumentException("Code column or denomination column do not exist");
+                Cell cell = rowNames.createCell(rowNames.getPhysicalNumberOfCells());
+                cell.setCellStyle(this.redCellStyle(workbook));
+                cell.setCellValue("Code column or denomination column do not exist");
+                modifiedFile = this.createModifiedWorkbook(workbook, file);
+                throw new NullCellException("Code column or denomination column do not exist");
             }
 
             // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
@@ -460,11 +469,11 @@ public class MigrationService {
                 try {
                     Row row = sheet.getRow(i);
                     if(row.getCell(cellCode) == null) {
-                        throw new IllegalArgumentException("Code cell can not be null");
+                        throw new NullCellException("Code cell can not be null");
                     }
 
                     if(row.getCell(cellDenomination) == null) {
-                        throw new IllegalArgumentException("Denomination cell can not be null");
+                        throw new NullCellException("Denomination cell can not be null");
                     }
 
                     String code = (row.getCell(cellCode).getCellType() == CellType.STRING) ? (row.getCell(cellCode).getStringCellValue()).trim() : ("" + (int) row.getCell(cellCode).getNumericCellValue());
@@ -538,9 +547,13 @@ public class MigrationService {
                     CompCategoriesResponse cPRes = compCategoriesFeign.createCompensationCategories(bearerToken, compCategories).getData();
                     this.compensationCategoriesResponseMap.put(cPRes.getCode(), cPRes.getId());
                     row.getCell(0).setCellStyle(cellStyle);
+                } catch(ErrorResponseException e) {
+                    this.logRowErrorResponse(i, e);
+                    ErrorResponse error = e.getError();
+                    this.agregarExcetionFeign(sheet.getRow(i), error.getErrors().getFields());
                 } catch (Exception e) {
                     this.logRowError(i, e);
-                    this.agregarCeldaError(sheet.getRow(i), e);
+                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
                 }
             }
             // Archivo modificado para devolver
@@ -555,7 +568,7 @@ public class MigrationService {
 
         String bearerToken = this.getBearerToken();
 
-        File modifiedFile = null;
+        File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
@@ -577,10 +590,10 @@ public class MigrationService {
             Integer cellMaxSalary = null;
 
             for (int i = 0; i < rowNames.getPhysicalNumberOfCells(); i++) {
+                
                 Cell columnName = rowNames.getCell(i);
-
-                if(columnName == null) {
-                    throw new IllegalArgumentException("ColumnName can not be null, column: " + i);
+                if (columnName == null) {
+                    cellCode = i;
                 } else if (columnName.getStringCellValue().equalsIgnoreCase("code")) {
                     cellCode = i;
                 } else if(columnName.getStringCellValue().equalsIgnoreCase("denomination")) {
@@ -597,7 +610,11 @@ public class MigrationService {
             }
 
             if(cellCode == null || cellDenomination == null || cellMinSalary == null || cellMaxSalary == null) {
-                throw new IllegalArgumentException("code/denomination/max_authorized_salary/min_authorized_salary column do not exist");
+                Cell cell = rowNames.createCell(rowNames.getPhysicalNumberOfCells() + 1);
+                cell.setCellStyle(this.redCellStyle(workbook));
+                cell.setCellValue("code / denomination / min_salary / max_salary column do not exist");
+                modifiedFile = this.createModifiedWorkbook(workbook, file);
+                throw new NullCellException("code / denomination / min_salary / max_salary column do not exist");
             }
 
             // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
@@ -606,19 +623,19 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
 
                     if(row.getCell(cellCode) == null) {
-                        throw new IllegalArgumentException("code cell can not be null");
+                        throw new NullCellException("code cell can not be null");
                     }
 
                     if(row.getCell(cellDenomination) == null) {
-                        throw new IllegalArgumentException("denomination cell can not be null");
+                        throw new NullCellException("denomination cell can not be null");
                     }
 
                     if(row.getCell(cellMinSalary) == null) {
-                        throw new IllegalArgumentException("min_authorized_salary cell can not be null");
+                        throw new NullCellException("min_authorized_salary cell can not be null");
                     }
 
                     if(row.getCell(cellMaxSalary) == null) {
-                        throw new IllegalArgumentException("max_authorized_salary cell can not be null");
+                        throw new NullCellException("max_authorized_salary cell can not be null");
                     }
 
                     // Sacamos el código y el nombre de la compensación
@@ -708,9 +725,13 @@ public class MigrationService {
                     TabsResponse tabRes = tabsFeign.createTab(bearerToken, tabsRequest).getData();
                     compensationTabResponseMap.put(tabRes.getCode(), tabRes.getId());
                     row.getCell(0).setCellStyle(cellStyle);
+                } catch(ErrorResponseException e) {
+                    this.logRowErrorResponse(i, e);
+                    ErrorResponse error = e.getError();
+                    this.agregarExcetionFeign(sheet.getRow(i), error.getErrors().getFields());
                 } catch (Exception e) {
                     this.logRowError(i, e);
-                    this.agregarCeldaError(sheet.getRow(i), e);
+                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
                 }
             }
 
@@ -730,9 +751,6 @@ public class MigrationService {
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
-
-            log.info("Entramos a recorrer el archivo");
-
             // Nos posicionamos en la hoja
             Sheet sheet = workbook.getSheet("work_position_categories");
 
@@ -748,10 +766,10 @@ public class MigrationService {
             Integer cellStatus = null;
 
             for (int i = 0; i < rowNames.getPhysicalNumberOfCells(); i++) {
+                
                 Cell columnName = rowNames.getCell(i);
-
                 if(columnName == null) {
-                    throw new IllegalArgumentException("ColumnName can not be null, column: " + i);
+                    continue;
                 } else if (columnName.getStringCellValue().equalsIgnoreCase("code")) {
                     cellCode = i;
                 } else if(columnName.getStringCellValue().equalsIgnoreCase("denomination")) {
@@ -764,7 +782,11 @@ public class MigrationService {
             }
 
             if(cellCode == null || cellDenomination == null) {
-                throw new IllegalArgumentException("code/denomination column do not exist");
+                Cell cell = rowNames.createCell(rowNames.getPhysicalNumberOfCells() + 1);
+                cell.setCellStyle(this.redCellStyle(workbook));
+                cell.setCellValue("code / denomination column do not exist");
+                modifiedFile = this.createModifiedWorkbook(workbook, file);
+                throw new NullCellException("code / denomination column do not exist");
             }
 
             // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
@@ -773,11 +795,11 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
 
                     if(row.getCell(cellCode) == null) {
-                        throw new IllegalArgumentException("code cell can not be null");
+                        throw new NullCellException("code cell can not be null");
                     }
 
                     if(row.getCell(cellDenomination) == null) {
-                        throw new IllegalArgumentException("denomination cell can not be null");
+                        throw new NullCellException("denomination cell can not be null");
                     }
 
                     // Sacamos el código y el nombre de la compensación
@@ -820,8 +842,9 @@ public class MigrationService {
 
                     fieldsExcel.forEach((nameColumn, position) -> {
                         Cell cell = row.getCell(position);
+                        log.info(nameColumn);
                         if (cell == null) {
-                            fieldsValues.put(nameColumn, null);
+                            fieldsValues.put(nameColumn, "");
                         } else {
                             switch (cell.getCellType()) {
                                 case STRING:
@@ -860,9 +883,13 @@ public class MigrationService {
                     DefaultResponse<WorkPositionCategoryResponse> wpc = worksPositionCategoriesFeign.createWorkPositionCategory(bearerToken, workPositionCategoryRequest);
                     workPositionCategoriesMap.put(wpc.getData().getDenomination(), wpc.getData().getId());
                     row.getCell(0).setCellStyle(cellStyle);
+                } catch(ErrorResponseException e) {
+                    this.logRowErrorResponse(i, e);
+                    ErrorResponse error = e.getError();
+                    this.agregarExcetionFeign(sheet.getRow(i), error.getErrors().getFields());
                 } catch (Exception e) {
                     this.logRowError(i, e);
-                    this.agregarCeldaError(sheet.getRow(i), e);
+                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
                 }
             }
             modifiedFile = this.createModifiedWorkbook(workbook, file);
@@ -907,7 +934,7 @@ public class MigrationService {
                 Cell columnName = rowNames.getCell(i);
 
                 if(columnName == null) {
-                    throw new IllegalArgumentException("ColumnName can not be null, column: " + i);
+                    continue;
                 } else if (columnName.getStringCellValue().equalsIgnoreCase("name")) {
                     cellName = i;
                 } else if(columnName.getStringCellValue().equalsIgnoreCase("period_type")) {
@@ -920,7 +947,11 @@ public class MigrationService {
             }
 
             if(cellName == null || cellPeriodType == null || cellKeywordMaxDuration == null || cellMaxDailyDuration == null) {
-                throw new IllegalArgumentException("name/period_type/keyword_max_duracion/max_daily_duration column do not exist");
+                Cell cell = rowNames.createCell(rowNames.getPhysicalNumberOfCells() + 1);
+                cell.setCellStyle(this.redCellStyle(workbook));
+                cell.setCellValue("name / period_type / keyword_max_duracion / max_daily_duration column do not exist");
+                modifiedFile = this.createModifiedWorkbook(workbook, file);
+                throw new NullCellException("name / period_type / keyword_max_duracion / max_daily_duration column do not exist");
             }
 
             // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
@@ -932,15 +963,15 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
 
                     if(row.getCell(cellName) == null) {
-                        throw new IllegalArgumentException("name cell can not be null");
+                        throw new NullCellException("name cell can not be null");
                     }
 
                     if(row.getCell(cellPeriodType) == null) {
-                        throw new IllegalArgumentException("period_type cell can not be null");
+                        throw new NullCellException("period_type cell can not be null");
                     }
 
                     if(row.getCell(cellKeywordMaxDuration) == null) {
-                        throw new IllegalArgumentException("keyword_max_duracion cell can not be null");
+                        throw new NullCellException("keyword_max_duracion cell can not be null");
                     }
 
                     String name = (row.getCell(cellName).getStringCellValue()).trim();
@@ -987,7 +1018,7 @@ public class MigrationService {
                                 .map(WorkPeriodTypeResponse::getId).findFirst().orElseThrow();
 
                     } else {
-                        throw new Exception("There is no period with that name");
+                        throw new NullCellException("There is no period with that name");
                     }
 
                     Long idWorkPeriodMaxDuration = workPeriodMaxDurationsList
@@ -1003,53 +1034,79 @@ public class MigrationService {
                     // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
                     for (int j = 1; j < workTurnsSheet.getPhysicalNumberOfRows(); j++) {
 
-                        Row workTurnRow = workTurnsSheet.getRow(j);
-                        String nameWorkPeriod = workTurnRow.getCell(0).getStringCellValue();
-                        Date dateFrom = null;
-                        Date dateTo = null;
-                        String from = "";
-                        String to = "";
+                        try {
+                            Row workTurnRow = workTurnsSheet.getRow(j);
 
-                        //Verificamos si el nombre coincide sino continuamos
-                        if(!nameWorkPeriod.equalsIgnoreCase(name)) {
-                            continue;
-                        }
+                            if(workTurnRow.getCell(0) == null) {
+                                throw new NullCellException("work_period name is null");
+                            }
 
-                        if(periodType.equalsIgnoreCase("Horario Fijo")) {
-                            dateFrom = workTurnRow.getCell(1).getDateCellValue();
-                            dateTo = workTurnRow.getCell(2).getDateCellValue();
-                        }
+                            String nameWorkPeriod = workTurnRow.getCell(0).getStringCellValue();
+                            Date dateFrom = null;
+                            Date dateTo = null;
+                            String from = "";
+                            String to = "";
 
-                        Integer dayOfWeek = (int) workTurnRow.getCell(3).getNumericCellValue();
-                        String workTurnType = workTurnRow.getCell(4).getStringCellValue();
-                        Integer duration = (workTurnRow.getCell(5) == null) ? 0 : (int) workTurnRow.getCell(5).getNumericCellValue();
+                            //Verificamos si el nombre coincide sino continuamos
+                            if(!nameWorkPeriod.equalsIgnoreCase(name)) {
+                                continue;
+                            }
 
-                        Long idWorkTurnType = workturntypes
-                                .stream()
-                                .filter(wtt -> wtt.getName().equalsIgnoreCase(workTurnType))
-                                .map(wtt -> wtt.getId()).findFirst().orElseThrow();
+                            if(periodType.equalsIgnoreCase("Horario Fijo")) {
 
-                        Long idDuration = null;
-                        if(duration != 0){
-                            idDuration = durations
+                                if(workTurnRow.getCell(1) == null) {
+                                    throw new NullCellException("date_from is null");
+                                }
+                                
+                                if(workTurnRow.getCell(2) == null) {
+                                    throw new NullCellException("date_to is null");
+                                }
+
+                                dateFrom = workTurnRow.getCell(1).getDateCellValue();
+                                dateTo = workTurnRow.getCell(2).getDateCellValue();
+                            }
+
+                            if(workTurnRow.getCell(3) == null) {
+                                throw new NullCellException("day_of_week name is null");
+                            }
+
+                            if(workTurnRow.getCell(4) == null) {
+                                throw new NullCellException("work_turn_type is null");
+                            }
+
+                            Integer dayOfWeek = (int) workTurnRow.getCell(3).getNumericCellValue();
+                            String workTurnType = workTurnRow.getCell(4).getStringCellValue();
+                            Integer duration = (workTurnRow.getCell(5) == null) ? 0 : (int) workTurnRow.getCell(5).getNumericCellValue();
+
+                            Long idWorkTurnType = workturntypes
                                     .stream()
-                                    .filter(d -> d.getAmount() == duration)
-                                    .map(d -> d.getId()).findFirst().orElseThrow();
+                                    .filter(wtt -> wtt.getName().equalsIgnoreCase(workTurnType))
+                                    .map(wtt -> wtt.getId()).findFirst().orElseThrow();
+
+                            Long idDuration = null;
+                            if(duration != 0){
+                                idDuration = durations
+                                        .stream()
+                                        .filter(d -> d.getAmount() == duration)
+                                        .map(d -> d.getId()).findFirst().orElseThrow();
+                            }
+
+                            // Formatear la hora
+                            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm");
+
+                            if(dateFrom != null && dateTo != null) {
+                                from = timeFormat.format(dateFrom);
+                                to = timeFormat.format(dateTo);
+                            }
+
+                            workPeriodDetailList.add(new WorkPeriodDetailRequest(
+                                    from, to, dayOfWeek,
+                                    idWorkTurnType, idDuration));
+
+                            workTurnRow.getCell(0).setCellStyle(cellStyle);
+                        } catch (Exception e) {
+                            this.agregarCeldaError(workTurnsSheet.getRow(j), e.getMessage());
                         }
-
-                        // Formatear la hora
-                        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm");
-
-                        if(dateFrom != null && dateTo != null) {
-                            from = timeFormat.format(dateFrom);
-                            to = timeFormat.format(dateTo);
-                        }
-
-                        workPeriodDetailList.add(new WorkPeriodDetailRequest(
-                                from, to, dayOfWeek,
-                                idWorkTurnType, idDuration));
-
-                        workTurnRow.getCell(0).setCellStyle(cellStyle);
                     }
 
                     // Preparamos el objeto que irá en el body
@@ -1070,16 +1127,18 @@ public class MigrationService {
                     DefaultResponse<WorkPeriodResponse> wpr = workPeriodsFeign.createWorkPeriods(bearerToken, workPeriodRequest);
                     workPeriodsMap.put(wpr.getData().getName(), wpr.getData().getId());
                     row.getCell(0).setCellStyle(cellStyle);
+                } catch(ErrorResponseException e) {
+                    this.logRowErrorResponse(i, e);
+                    ErrorResponse error = e.getError();
+                    this.agregarExcetionFeign(sheet.getRow(i), error.getErrors().getFields());
                 } catch (Exception e) {
                     this.logRowError(i, e);
-                    this.agregarCeldaError(sheet.getRow(i), e);
+                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
                 }
             }
-
             modifiedFile = this.createModifiedWorkbook(workbook, file);
         } catch (Exception e) {
             this.logProcessingExcelFile(e);
-            log.error("Error processing Excel file: " + e.getMessage());
         }
         return modifiedFile;
     }
@@ -1107,19 +1166,42 @@ public class MigrationService {
         cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return cellStyle;
     }
+    
+    private CellStyle redCellStyle(Workbook workbook) {
+        CellStyle redCellStyle = workbook.createCellStyle();
+        XSSFColor redColor = new XSSFColor(java.awt.Color.RED, null);
+        ((XSSFCellStyle) redCellStyle).setFillForegroundColor(redColor);
+        redCellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return redCellStyle;
+    }
 
     private void logRowError(int i, Exception e) {
         log.error("Error processing row " + (i + 1) + " in Excel: " + e.getMessage());
+    }
+
+    private void logRowErrorResponse(int i, ErrorResponseException e) {
+        log.error("Error processing row " + (i + 1) + " in Excel: " + e.getError().getErrors().getFields().toString());
     }
 
     private void logProcessingExcelFile(Exception e) {
         log.error("Error processing Excel file: " + e.getMessage());
     }
 
-    private void agregarCeldaError(Row row, Exception e) {
+    private void agregarCeldaError(Row row, String message) {
         // Agregar celda con el mensaje de error en la fila que falló
-        Cell errorCell = row.createCell(row.getPhysicalNumberOfCells());
-        errorCell.setCellValue("Error: " + e.getMessage());
+        Cell errorCell = row.createCell(row.getPhysicalNumberOfCells() + 1);
+        errorCell.setCellValue("Error: " + message);
+    }
+    
+    private void agregarExcetionFeign(Row row, List<String> fields) {
+        // Agregar celda con el mensaje de error en la fila que falló
+        Cell errorCell = row.createCell(row.getPhysicalNumberOfCells() + 1);
+        StringBuilder errores = new StringBuilder();
+        for (String f : fields) {
+            errores = errores.append(f).append(" ");
+        }
+
+        errorCell.setCellValue("Error: " + errores.toString());
     }
 
     private File createModifiedWorkbook(Workbook workbook, MultipartFile file) {
