@@ -66,7 +66,7 @@ public class MigrationController {
     }
     @PostMapping("/load-compensations")
     public ResponseEntity<InputStreamResource> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = migrationService.cargarCompensaciones(file);
+        File modifiedFile = migrationService.loadCompensationsCategories(file);
         return  processFile(modifiedFile);
     }
 

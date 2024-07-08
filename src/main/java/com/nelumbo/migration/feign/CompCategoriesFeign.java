@@ -1,5 +1,6 @@
 package com.nelumbo.migration.feign;
 
+import com.nelumbo.migration.exceptions.CustomErrorDecoder;
 import com.nelumbo.migration.feign.dto.requests.CompCategoriesRequest;
 import com.nelumbo.migration.feign.dto.responses.CompCategoriesResponse;
 import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
@@ -8,12 +9,12 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@FeignClient(name= "compCategory", url="${hr-api}/compensation-categories")
+@FeignClient(name= "compCategory", url="${hr-api}/compensation-categories", configuration = CustomErrorDecoder.class)
 public interface CompCategoriesFeign {
 
     @GetMapping("/simplified-search")
     DefaultResponse<List<CompCategoriesResponse>> simplifiedSearch(@RequestHeader("Authorization") String token, @RequestParam String search);
 
     @PostMapping
-    void createCompensationCategories(@RequestHeader("Authorization") String token, @RequestBody CompCategoriesRequest compCategory);
+    DefaultResponse<CompCategoriesResponse> createCompensationCategories(@RequestHeader("Authorization") String token, @RequestBody CompCategoriesRequest compCategory);
 }

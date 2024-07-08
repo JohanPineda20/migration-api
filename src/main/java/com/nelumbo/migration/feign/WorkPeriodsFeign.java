@@ -1,12 +1,13 @@
 package com.nelumbo.migration.feign;
 
+import com.nelumbo.migration.exceptions.CustomErrorDecoder;
 import com.nelumbo.migration.feign.dto.requests.WorkPeriodRequest;
 import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import com.nelumbo.migration.feign.dto.responses.WorkPeriodResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 
-@FeignClient(name= "workPeriods", url="${hr-api}/work-periods")
+@FeignClient(name= "workPeriods", url="${hr-api}/work-periods", configuration = CustomErrorDecoder.class)
 public interface WorkPeriodsFeign {
 
     @GetMapping("/findone-by-name")

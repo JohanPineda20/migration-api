@@ -1,5 +1,6 @@
 package com.nelumbo.migration.feign;
 
+import com.nelumbo.migration.exceptions.CustomErrorDecoder;
 import com.nelumbo.migration.feign.dto.requests.WorkPositionCategoryRequest;
 import com.nelumbo.migration.feign.dto.responses.DefaultResponse;
 import com.nelumbo.migration.feign.dto.responses.WorkPositionCategoryResponse;
@@ -8,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@FeignClient(name= "workPositionsCategories", url="${hr-api}/work-position-categories")
+@FeignClient(name= "workPositionsCategories", url="${hr-api}/work-position-categories", configuration = CustomErrorDecoder.class)
 public interface WorksPositionCategoriesFeign {
 
     @GetMapping("/simplified-search")
