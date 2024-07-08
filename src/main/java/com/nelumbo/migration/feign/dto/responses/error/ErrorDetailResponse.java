@@ -13,11 +13,13 @@ import lombok.Setter;
 @NoArgsConstructor
 public class ErrorDetailResponse {
 
+    private Long id;
     private String code;
     private String description;
     private List<String> fields;
 
-    public ErrorDetailResponse(String code, String description) {
+    public ErrorDetailResponse(String code, String description, Long id) {
+        this.id = id;
         this.code = code;
         this.description = description;
     }

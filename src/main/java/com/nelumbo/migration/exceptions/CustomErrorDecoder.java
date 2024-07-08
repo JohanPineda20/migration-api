@@ -1,17 +1,11 @@
 package com.nelumbo.migration.exceptions;
 
-import javax.naming.NameNotFoundException;
-
-import org.apache.coyote.BadRequestException;
-import org.springframework.stereotype.Component;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nelumbo.migration.feign.dto.responses.error.ErrorResponse;
 
 import feign.Response;
 import feign.codec.ErrorDecoder;
 
-@Component
 public class CustomErrorDecoder implements ErrorDecoder {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -27,5 +21,4 @@ public class CustomErrorDecoder implements ErrorDecoder {
             return defaultErrorDecoder.decode(methodKey, response);
         }
     }
-
 }

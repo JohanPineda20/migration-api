@@ -8,7 +8,6 @@ import com.nelumbo.migration.feign.dto.requests.*;
 import com.nelumbo.migration.feign.dto.responses.*;
 import com.nelumbo.migration.feign.dto.responses.error.ErrorResponse;
 
-import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
@@ -329,8 +328,10 @@ public class MigrationService {
                     informacionPersonalValues.put("Estado civil", row.getCell(14).getStringCellValue());
                     DateTimeFormatter formatters = DateTimeFormatter.ofPattern("dd/MM/yyyy");
                     LocalDate.parse(row.getCell(15).getStringCellValue(), formatters);
+                    LocalDate.parse(row.getCell(36).getStringCellValue(), formatters);
                     informacionPersonalValues.put("Fecha de contratación", row.getCell(15).getStringCellValue());
-                    informacionPersonalValues.put("Clave antigua", clave.getCellType() == CellType.STRING ? clave.getStringCellValue() : "" + (int) clave.getNumericCellValue());
+                    informacionPersonalValues.put("Fecha de ingreso", row.getCell(36).getStringCellValue());
+                    informacionPersonalValues.put("Clave MPRO", clave.getCellType() == CellType.STRING ? clave.getStringCellValue() : "" + (int) clave.getNumericCellValue());
 
                     ProfileSecValueRequest informacionBiografica = new ProfileSecValueRequest();
                     informacionBiografica.setKeyword("PSBI02");
@@ -343,45 +344,71 @@ public class MigrationService {
                     Map<String, Object> datosPersonalesValues = datosPersonales.getFieldsValues();
                     datosPersonalesValues.put("RFC", row.getCell(6).getStringCellValue());
                     datosPersonalesValues.put("CURP", row.getCell(7).getStringCellValue());
-                    datosPersonalesValues.put("NSS", (int)row.getCell(8).getNumericCellValue());
+                    datosPersonalesValues.put("NSS", row.getCell(8).getStringCellValue());
+                    datosPersonalesValues.put("IMSS", row.getCell(37).getStringCellValue());
 
                     ProfileSecValueRequest direccion = new ProfileSecValueRequest();
                     direccion.setKeyword("PSAS05");
                     Map<String, Object> direccionValues = direccion.getFieldsValues();
                     direccionValues.put("Dirección", row.getCell(19).getStringCellValue());
-                    direccionValues.put("Transporte", row.getCell(24).getStringCellValue());
+                    direccionValues.put("Transporte", (row.getCell(24) == null) ? "" : row.getCell(24).getStringCellValue());
                     DefaultResponse<List<CountryResponse>> countryResponse = countryFeign.findAll();
                     CountryResponse paisResidencia = countryResponse.getData().stream()
                             .filter(country -> country.getName().equalsIgnoreCase(row.getCell(20).getStringCellValue()))
-                            .findFirst().orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(2).getStringCellValue().concat(" not found"))));
+                            .findFirst().orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(20).getStringCellValue().concat(" not found"))));
                     DefaultResponse<List<CountryResponse>> stateResponse = countryFeign.findAllStatesByCountryId(paisResidencia.getId());
                     CountryResponse estadoResidencia = stateResponse.getData().stream()
                             .filter(state -> state.getName().equalsIgnoreCase(row.getCell(21).getStringCellValue()))
-                            .findFirst().orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(3).getStringCellValue().concat(" not found"))));
+                            .findFirst().orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(21).getStringCellValue().concat(" not found"))));
                     DefaultResponse<List<CountryResponse>> cityResponse = countryFeign.findAllCitesByStateIdAndCountryId(paisResidencia.getId(), estadoResidencia.getId());
                     CountryResponse ciudadResidencia = cityResponse.getData().stream()
                             .filter(city -> city.getName().equalsIgnoreCase(row.getCell(22).getStringCellValue()))
-                            .findFirst().orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(4).getStringCellValue().concat(" not found"))));
+                            .findFirst().orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(22).getStringCellValue().concat(" not found"))));
                     direccionValues.put("Lugar de Residencia", Arrays.asList(paisResidencia, estadoResidencia, ciudadResidencia));
 
                     ProfileSecValueRequest contacto = new ProfileSecValueRequest();
                     contacto.setKeyword("PSCI06");
                     Map<String, Object> contactoValues = contacto.getFieldsValues();
                     contactoValues.put("Email Personal", row.getCell(17).getStringCellValue());
-                    contactoValues.put("Número telefónico", (int) row.getCell(18).getNumericCellValue());
+                    contactoValues.put("Número telefónico", (row.getCell(18) == null) ? "" : row.getCell(18).getStringCellValue());
+                    contactoValues.put("Contacto 1", (row.getCell(23) == null) ? "" : row.getCell(23).getStringCellValue());
 
                     ProfileSecValueRequest dependientes = new ProfileSecValueRequest();
-                    direccion.setKeyword("PSDP09");
+                    dependientes.setKeyword("PSDP09");
                     Map<String, Object> dependientesValues = dependientes.getFieldsValues();
-                    dependientesValues.put("Cantidad de dependientes económicos", (int)row.getCell(32).getNumericCellValue());
+                    dependientesValues.put("Cantidad de dependientes económicos", (int)row.getCell(33).getNumericCellValue());
 
                     ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
-                    direccion.setKeyword("PSPM14");
+                    informacionPago.setKeyword("PSPM14");
                     Map<String, Object> informacionPagoValues = informacionPago.getFieldsValues();
                     informacionPagoValues.put("Banco", row.getCell(26).getStringCellValue());
                     informacionPagoValues.put("Cuenta bancaria", row.getCell(27).getStringCellValue());
                     informacionPagoValues.put("Clabe interbancaria", row.getCell(28).getStringCellValue());
                     informacionPagoValues.put("Titular de la cuenta", row.getCell(29).getStringCellValue());
+
+                    ProfileSecValueRequest personalLeaving = null;
+                    if(row.getCell(38) != null || row.getCell(39) != null) {
+                        personalLeaving = new ProfileSecValueRequest();
+                        personalLeaving.setKeyword("PSPL18");
+                        Map<String, Object> personalLeavingValues = personalLeaving.getFieldsValues();
+
+                        if(row.getCell(38) != null) {
+                            LocalDate.parse(row.getCell(38).getStringCellValue(), formatters);
+                        }
+                        
+                        if(row.getCell(39) != null) {
+                            LocalDate.parse(row.getCell(39).getStringCellValue(), formatters);
+                        }
+    
+                        personalLeavingValues.put("Fecha de baja", (row.getCell(38) == null) ? "" : row.getCell(38).getStringCellValue());
+                        personalLeavingValues.put("Fecha de baja del sistema", (row.getCell(39) == null) ? "" : row.getCell(39).getStringCellValue());
+                    }
+
+                    
+                    // ProfileSecValueRequest emergencyContact = new ProfileSecValueRequest();
+                    // direccion.setKeyword("PSEC08");
+                    // Map<String, Object> emergencyContactValues = emergencyContact.getFieldsValues();
+                    //emergencyContactValues.put("Contacto de emergencia", (row.getCell(23) == null) ? "" : row.getCell(23).getStringCellValue());
 
                     profileSecValueRequestList.add(informacionPersonal);
                     profileSecValueRequestList.add(informacionBiografica);
@@ -390,12 +417,24 @@ public class MigrationService {
                     profileSecValueRequestList.add(contacto);
                     profileSecValueRequestList.add(dependientes);
                     profileSecValueRequestList.add(informacionPago);
+                    
+                    if(personalLeaving != null) {
+                        profileSecValueRequestList.add(personalLeaving);
+                    }
+                    
+                    // profileSecValueRequestList.add(emergencyContact);
                     profileRequest.setSectionValues(profileSecValueRequestList);
                     Long workPositionId = workPositionResponseMap.get(row.getCell(25).getStringCellValue());
                     if (workPositionId == null) throw new RuntimeException("work position ".concat(row.getCell(25).getStringCellValue().concat(" not found")));
                     profileRequest.setWorkPositionId(workPositionId);
                     DefaultResponse<ProfileResponse> profileResponse = profileFeign.createProfile(bearerToken, profileRequest);
 
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getError().getErrors().getFields());
+                    
+                    if(e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getMessage());
                 }
