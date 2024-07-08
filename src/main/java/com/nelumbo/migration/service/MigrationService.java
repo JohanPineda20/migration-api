@@ -308,9 +308,9 @@ public class MigrationService {
                     informacionPersonal.setKeyword("PSPI01");
                     Map<String, Object> informacionPersonalValues = informacionPersonal.getFieldsValues();
                     informacionPersonalValues.put("Primer Nombre", row.getCell(1).getStringCellValue());
-                    informacionPersonalValues.put("Segundo Nombre", row.getCell(2).getStringCellValue());
+                    informacionPersonalValues.put("Segundo Nombre", row.getCell(2) != null ? row.getCell(2).getStringCellValue() : "");
                     informacionPersonalValues.put("Primer Apellido", row.getCell(3).getStringCellValue());
-                    informacionPersonalValues.put("Segundo Apellido", row.getCell(4).getStringCellValue());
+                    informacionPersonalValues.put("Segundo Apellido", row.getCell(4) != null ? row.getCell(4).getStringCellValue() : "");
                     informacionPersonalValues.put("Sexo", row.getCell(5).getStringCellValue());
                     informacionPersonalValues.put("Grupo sanguíneo", row.getCell(12).getStringCellValue());
                     informacionPersonalValues.put("Estado civil", row.getCell(14).getStringCellValue());
@@ -330,11 +330,13 @@ public class MigrationService {
                     Map<String, Object> datosPersonalesValues = datosPersonales.getFieldsValues();
                     datosPersonalesValues.put("RFC", row.getCell(6).getStringCellValue());
                     datosPersonalesValues.put("CURP", row.getCell(7).getStringCellValue());
+                    datosPersonalesValues.put("NSS", (int)row.getCell(8).getNumericCellValue());
 
                     ProfileSecValueRequest direccion = new ProfileSecValueRequest();
                     direccion.setKeyword("PSAS05");
                     Map<String, Object> direccionValues = direccion.getFieldsValues();
                     direccionValues.put("Dirección", row.getCell(19).getStringCellValue());
+                    direccionValues.put("Transporte", row.getCell(24).getStringCellValue());
                     DefaultResponse<List<CountryResponse>> countryResponse = countryFeign.findAll();
                     CountryResponse paisResidencia = countryResponse.getData().stream()
                             .filter(country -> country.getName().equalsIgnoreCase(row.getCell(20).getStringCellValue()))
@@ -355,11 +357,26 @@ public class MigrationService {
                     contactoValues.put("Email Personal", row.getCell(17).getStringCellValue());
                     contactoValues.put("Número telefónico", (int) row.getCell(18).getNumericCellValue());
 
+                    ProfileSecValueRequest dependientes = new ProfileSecValueRequest();
+                    direccion.setKeyword("PSDP09");
+                    Map<String, Object> dependientesValues = dependientes.getFieldsValues();
+                    dependientesValues.put("Cantidad de dependientes económicos", (int)row.getCell(32).getNumericCellValue());
+
+                    ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
+                    direccion.setKeyword("PSPM14");
+                    Map<String, Object> informacionPagoValues = informacionPago.getFieldsValues();
+                    informacionPagoValues.put("Banco", row.getCell(26).getStringCellValue());
+                    informacionPagoValues.put("Cuenta bancaria", row.getCell(27).getStringCellValue());
+                    informacionPagoValues.put("Clabe interbancaria", row.getCell(28).getStringCellValue());
+                    informacionPagoValues.put("Titular de la cuenta", row.getCell(29).getStringCellValue());
+
                     profileSecValueRequestList.add(informacionPersonal);
                     profileSecValueRequestList.add(informacionBiografica);
                     profileSecValueRequestList.add(datosPersonales);
                     profileSecValueRequestList.add(direccion);
                     profileSecValueRequestList.add(contacto);
+                    profileSecValueRequestList.add(dependientes);
+                    profileSecValueRequestList.add(informacionPago);
                     profileRequest.setSectionValues(profileSecValueRequestList);
                     Long workPositionId = workPositionResponseMap.get(row.getCell(25).getStringCellValue());
                     if (workPositionId == null) throw new RuntimeException("work position ".concat(row.getCell(25).getStringCellValue().concat(" not found")));
