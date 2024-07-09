@@ -483,7 +483,7 @@ public class MigrationService {
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             // Nos posicionamos en la primera hoja
-            Sheet sheet = workbook.getSheet("compensation_categories");
+            Sheet sheet = workbook.getSheet("categorias de compensacion");
 
             logSheetNameNumberOfRows(sheet);
 
@@ -630,7 +630,7 @@ public class MigrationService {
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             // Nos posicionamos en la primera hoja
-            Sheet sheet = workbook.getSheet("compensation_tab");
+            Sheet sheet = workbook.getSheet("tabuladores");
 
             this.logSheetNameNumberOfRows(sheet);
 
@@ -808,7 +808,7 @@ public class MigrationService {
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             // Nos posicionamos en la hoja
-            Sheet sheet = workbook.getSheet("work_position_categories");
+            Sheet sheet = workbook.getSheet("puestos");
 
             this.logSheetNameNumberOfRows(sheet);
 
@@ -972,7 +972,7 @@ public class MigrationService {
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             // Nos posicionamos en la primera hoja
-            Sheet sheet = workbook.getSheet("work_periods");
+            Sheet sheet = workbook.getSheet("jornadas");
 
             this.logSheetNameNumberOfRows(sheet);
 
@@ -1083,7 +1083,7 @@ public class MigrationService {
                             .map(WorkPeriodMaxDurationsResponse::getId).findFirst().orElseThrow(() -> new Exception("There is no max_duration with that keyword"));
 
                     // Nos posicionamos en la segunda hoja donde estan los tunos de trabajo
-                    Sheet workTurnsSheet = workbook.getSheet("work_turns");
+                    Sheet workTurnsSheet = workbook.getSheet("turnos");
 
                     this.logSheetNameNumberOfRows(workTurnsSheet);
 
