@@ -8,7 +8,7 @@ spring:
     ansi:
       enabled: ALWAYS
   profiles:
-    active: local
+    active: dev
 
 email: ${EMAIL}
 password: ${PASSWORD}

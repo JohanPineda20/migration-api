@@ -406,7 +406,7 @@ public class MigrationService {
 
                     
                     // ProfileSecValueRequest emergencyContact = new ProfileSecValueRequest();
-                    // direccion.setKeyword("PSEC08");
+                    // emergencyContact.setKeyword("PSEC08");
                     // Map<String, Object> emergencyContactValues = emergencyContact.getFieldsValues();
                     //emergencyContactValues.put("Contacto de emergencia", (row.getCell(23) == null) ? "" : row.getCell(23).getStringCellValue());
 
@@ -428,6 +428,11 @@ public class MigrationService {
                     if (workPositionId == null) throw new RuntimeException("work position ".concat(row.getCell(25).getStringCellValue().concat(" not found")));
                     profileRequest.setWorkPositionId(workPositionId);
                     DefaultResponse<ProfileResponse> profileResponse = profileFeign.createProfile(bearerToken, profileRequest);
+                    WorkPeriodAssignRequest workPeriodAssignRequest = new WorkPeriodAssignRequest();
+                    workPeriodAssignRequest.setProfileIds(Collections.singleton(profileResponse.getData().getId()));
+                    Long workPeriodId = workPeriodsMap.get(row.getCell(16).getStringCellValue());
+                    if (workPeriodId == null) throw new RuntimeException("work period".concat(row.getCell(16).getStringCellValue().concat(" not found")));
+                    workPeriodsFeign.createWorkPeriodAssignments(bearerToken, workPeriodAssignRequest, workPeriodId);
 
                 } catch (ErrorResponseException e) {
                     log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getError().getErrors().getFields());

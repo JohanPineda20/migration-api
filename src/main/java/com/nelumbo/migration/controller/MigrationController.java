@@ -83,7 +83,7 @@ public class MigrationController {
     }
 
     @PostMapping("/load-work-periods")
-    public ResponseEntity<InputStreamResource> loadWorkPoeriods(@RequestPart(value = "file") MultipartFile file) {
+    public ResponseEntity<InputStreamResource> loadWorkPeriods(@RequestPart(value = "file") MultipartFile file) {
         File modifiedFile = migrationService.loadWorkPeriods(file);
         return  processFile(modifiedFile);
     }
