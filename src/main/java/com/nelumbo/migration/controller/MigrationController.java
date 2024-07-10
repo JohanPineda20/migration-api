@@ -47,7 +47,11 @@ public class MigrationController {
         migrationService.migrateStoresOrgEntities(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
-
+    @PostMapping("stores-work-periods")
+    public ResponseEntity<Void> migrateStoreWorkPeriods(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateStoreWorkPeriods(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
     @PostMapping("work-positions")
     public ResponseEntity<Void> migrateWorkPositions(@RequestPart(value = "file") MultipartFile file){
         migrationService.migrateWorkPositions(file);
@@ -59,9 +63,9 @@ public class MigrationController {
         migrationService.migrateProfiles(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
-    @PostMapping("stores-work-periods")
-    public ResponseEntity<Void> migrateStoreWorkPeriods(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateStoreWorkPeriods(file);
+    @PostMapping("references")
+    public ResponseEntity<Void> migrateReferences(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateReferences(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
     @PostMapping("/load-compensations")

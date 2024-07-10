@@ -55,6 +55,8 @@ public class MigrationService {
     Map<String, Long> storeResponseMap = new ConcurrentHashMap<>();
     Map<String,Map<String, Long>> storeDetailResponseMap = new ConcurrentHashMap<>();
     Map<String,Long> workPositionResponseMap = new ConcurrentHashMap<>();
+    Map<String,Long> profileResponseMap = new ConcurrentHashMap<>();
+
     Map<String,Long> workPeriodsMap = new ConcurrentHashMap<>();
     Map<String,Long> workPositionCategoriesMap = new ConcurrentHashMap<>();
     
@@ -77,13 +79,19 @@ public class MigrationService {
 
             Sheet sheet = workbook.getSheet("centro de costos");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Integer> fieldValues = new HashMap<>();
+            Row rowEncabezados = sheet.getRow(0);
+            for(int i = 5; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
+                String encabezado = rowEncabezados.getCell(i).getStringCellValue();
+                fieldValues.put(encabezado, i);
+            }
 
             for (int i = 1; i < numberOfRows; i++) {
                 try {
                     Row row = sheet.getRow(i);
                     CostCenterRequest costCenterRequest = new CostCenterRequest();
                     Cell cellCode = row.getCell(0);
-                    costCenterRequest.setCode(cellCode.getCellType() == CellType.STRING ? cellCode.getStringCellValue() : "" + (int) cellCode.getNumericCellValue());
+                    costCenterRequest.setCode(cellCode.getStringCellValue());
                     costCenterRequest.setDenomination(row.getCell(1).getStringCellValue());
 
                     DefaultResponse<List<CountryResponse>> countryResponse = countryFeign.findAll();
@@ -103,9 +111,15 @@ public class MigrationService {
                     costCenterRequest.setStateId(stateId);
                     costCenterRequest.setCityId(cityId);
                     costCenterRequest.setStatusId(1L);
+                    fieldValues.forEach((name, position) ->{
+                        Cell cell = row.getCell(position);
+                        if (cell != null) {
+                            costCenterRequest.getFieldsValues().put(name, cell.getStringCellValue());
+                        }
+                    });
 
                     DefaultResponse<CostCenterResponse> costCenterResponse = costCenterFeign.createCostCenter(bearerToken, costCenterRequest);
-                    costCenterResponseMap.put(costCenterResponse.getData().getDenomination(), costCenterResponse.getData().getId());
+                    costCenterResponseMap.put(costCenterResponse.getData().getCode(), costCenterResponse.getData().getId());
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet centro de costos: " + e.getMessage());
                 }
@@ -128,7 +142,7 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     StoreRequest storeRequest = new StoreRequest();
                     Cell code = row.getCell(0);
-                    storeRequest.setCode(code.getCellType() == CellType.STRING ? code.getStringCellValue() : "" + (int) code.getNumericCellValue());
+                    storeRequest.setCode(code.getStringCellValue());
                     storeRequest.setDenomination(row.getCell(1).getStringCellValue());
 
                     DefaultResponse<List<CountryResponse>> countryResponse = countryFeign.findAll();
@@ -156,7 +170,7 @@ public class MigrationService {
                     Long costCenterId = row.getCell(10) != null ? costCenterResponseMap.get(row.getCell(10).getStringCellValue()) : null;
                     storeRequest.setCostCenterId(costCenterId);
                     DefaultResponse<StoreResponse> storeResponse = storeFeign.createStore(bearerToken, storeRequest);
-                    storeResponseMap.put(storeResponse.getData().getDenomination(), storeResponse.getData().getId());
+                    storeResponseMap.put(storeResponse.getData().getCode(), storeResponse.getData().getId());
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
                 }
@@ -272,7 +286,7 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     WorkPositionRequest workPositionRequest = new WorkPositionRequest();
                     Cell code = row.getCell(0);
-                    workPositionRequest.setCode(code.getCellType() == CellType.STRING ? code.getStringCellValue() : "" + (int) code.getNumericCellValue());
+                    workPositionRequest.setCode(code.getStringCellValue());
                     workPositionRequest.setDenomination(row.getCell(1).getStringCellValue());
                     workPositionRequest.setAuthorizedStaff((long)row.getCell(2).getNumericCellValue());
                     workPositionRequest.setStatusId(1L);
@@ -282,7 +296,7 @@ public class MigrationService {
                     Long costCenterId = row.getCell(6) != null ? costCenterResponseMap.get(row.getCell(6).getStringCellValue()) : null;
                     workPositionRequest.setCostCenterId(costCenterId);
                     DefaultResponse<WorkPositionDetailResponse> workPositionDetailResponse = workPositionFeign.createWorkPosition(bearerToken, workPositionRequest);
-                    workPositionResponseMap.put(workPositionDetailResponse.getData().getWorkPosition().getDenomination(), workPositionDetailResponse.getData().getWorkPosition().getId());
+                    workPositionResponseMap.put(workPositionDetailResponse.getData().getWorkPosition().getCode(), workPositionDetailResponse.getData().getWorkPosition().getId());
                     
                     WorkPositionUpdateRequest wPUReq = WorkPositionUpdateRequest.builder()
                             .compCategoryId(compensationCategoriesResponseMap.get(row.getCell(7).getStringCellValue()))
@@ -328,10 +342,8 @@ public class MigrationService {
                     informacionPersonalValues.put("Estado civil", row.getCell(14).getStringCellValue());
                     DateTimeFormatter formatters = DateTimeFormatter.ofPattern("dd/MM/yyyy");
                     LocalDate.parse(row.getCell(15).getStringCellValue(), formatters);
-                    LocalDate.parse(row.getCell(36).getStringCellValue(), formatters);
-                    informacionPersonalValues.put("Fecha de contratación", row.getCell(15).getStringCellValue());
-                    informacionPersonalValues.put("Fecha de ingreso", row.getCell(36).getStringCellValue());
-                    informacionPersonalValues.put("Clave MPRO", clave.getCellType() == CellType.STRING ? clave.getStringCellValue() : "" + (int) clave.getNumericCellValue());
+                    informacionPersonalValues.put("Fecha de ingreso", row.getCell(15).getStringCellValue());
+                    informacionPersonalValues.put("Clave MPRO", clave.getStringCellValue());
 
                     ProfileSecValueRequest informacionBiografica = new ProfileSecValueRequest();
                     informacionBiografica.setKeyword("PSBI02");
@@ -345,7 +357,8 @@ public class MigrationService {
                     datosPersonalesValues.put("RFC", row.getCell(6).getStringCellValue());
                     datosPersonalesValues.put("CURP", row.getCell(7).getStringCellValue());
                     datosPersonalesValues.put("NSS", row.getCell(8).getStringCellValue());
-                    datosPersonalesValues.put("IMSS", row.getCell(37).getStringCellValue());
+                    datosPersonalesValues.put("INFONAVIT", row.getCell(9) != null ? row.getCell(9).getStringCellValue() : "");
+                    datosPersonalesValues.put("FONACOT", row.getCell(10) != null ? row.getCell(10).getStringCellValue(): "");
 
                     ProfileSecValueRequest direccion = new ProfileSecValueRequest();
                     direccion.setKeyword("PSAS05");
@@ -373,10 +386,13 @@ public class MigrationService {
                     contactoValues.put("Número telefónico", (row.getCell(18) == null) ? "" : row.getCell(18).getStringCellValue());
                     contactoValues.put("Contacto 1", (row.getCell(23) == null) ? "" : row.getCell(23).getStringCellValue());
 
-                    ProfileSecValueRequest dependientes = new ProfileSecValueRequest();
-                    dependientes.setKeyword("PSDP09");
-                    Map<String, Object> dependientesValues = dependientes.getFieldsValues();
-                    dependientesValues.put("Cantidad de dependientes económicos", (int)row.getCell(33).getNumericCellValue());
+                    ProfileSecValueRequest dependientes = null;
+                    if(row.getCell(33) != null) {
+                        dependientes = new ProfileSecValueRequest();
+                        dependientes.setKeyword("PSDP09");
+                        Map<String, Object> dependientesValues = dependientes.getFieldsValues();
+                        dependientesValues.put("Cantidad de dependientes económicos", (int) row.getCell(33).getNumericCellValue());
+                    }
 
                     ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
                     informacionPago.setKeyword("PSPM14");
@@ -404,30 +420,28 @@ public class MigrationService {
                         personalLeavingValues.put("Fecha de baja del sistema", (row.getCell(39) == null) ? "" : row.getCell(39).getStringCellValue());
                     }
 
-                    
-                    // ProfileSecValueRequest emergencyContact = new ProfileSecValueRequest();
-                    // emergencyContact.setKeyword("PSEC08");
-                    // Map<String, Object> emergencyContactValues = emergencyContact.getFieldsValues();
-                    //emergencyContactValues.put("Contacto de emergencia", (row.getCell(23) == null) ? "" : row.getCell(23).getStringCellValue());
-
                     profileSecValueRequestList.add(informacionPersonal);
                     profileSecValueRequestList.add(informacionBiografica);
                     profileSecValueRequestList.add(datosPersonales);
                     profileSecValueRequestList.add(direccion);
                     profileSecValueRequestList.add(contacto);
-                    profileSecValueRequestList.add(dependientes);
+
+                    if(dependientes != null) {
+                        profileSecValueRequestList.add(dependientes);
+                    }
+
                     profileSecValueRequestList.add(informacionPago);
                     
                     if(personalLeaving != null) {
                         profileSecValueRequestList.add(personalLeaving);
                     }
-                    
-                    // profileSecValueRequestList.add(emergencyContact);
+
                     profileRequest.setSectionValues(profileSecValueRequestList);
                     Long workPositionId = workPositionResponseMap.get(row.getCell(25).getStringCellValue());
                     if (workPositionId == null) throw new RuntimeException("work position ".concat(row.getCell(25).getStringCellValue().concat(" not found")));
                     profileRequest.setWorkPositionId(workPositionId);
                     DefaultResponse<ProfileResponse> profileResponse = profileFeign.createProfile(bearerToken, profileRequest);
+                    profileResponseMap.put(clave.getStringCellValue(), profileResponse.getData().getId());
                     WorkPeriodAssignRequest workPeriodAssignRequest = new WorkPeriodAssignRequest();
                     workPeriodAssignRequest.setProfileIds(Collections.singleton(profileResponse.getData().getId()));
                     Long workPeriodId = workPeriodsMap.get(row.getCell(16).getStringCellValue());
@@ -445,6 +459,34 @@ public class MigrationService {
                 }
             }
 
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+    }
+    public void migrateReferences(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
+
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("referencias");
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+                    ProfileSecValueRequest emergencyContact = new ProfileSecValueRequest();
+                    emergencyContact.setKeyword("PSEC08");
+                    Map<String, Object> emergencyContactValues = emergencyContact.getFieldsValues();
+                    emergencyContactValues.put("Nombre", (row.getCell(0) == null) ? "" : row.getCell(0).getStringCellValue());
+                    emergencyContactValues.put("Teléfono", (row.getCell(1) == null) ? "" : row.getCell(1).getStringCellValue());
+                    emergencyContactValues.put("Relación", (row.getCell(2) == null) ? "" : row.getCell(2).getStringCellValue());
+                    Long profileId = profileResponseMap.get(row.getCell(3).getStringCellValue());
+                    if(profileId == null) throw new RuntimeException("profile ".concat(row.getCell(3).getStringCellValue().concat(" not found")));
+                    profileFeign.createProfileSectionValueByProfile(bearerToken,profileId,emergencyContact);
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getMessage());
+                }
+            }
         } catch (Exception e) {
             log.error("Error processing Excel file: " + e.getMessage());
         }
