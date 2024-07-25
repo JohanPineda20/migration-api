@@ -91,6 +91,12 @@ public class MigrationController {
         File modifiedFile = migrationService.loadWorkPeriods(file);
         return  processFile(modifiedFile);
     }
+    
+    @PostMapping("/load-groups")
+    public ResponseEntity<Void> loadWorkGroups(@RequestPart(value = "file") MultipartFile file) {
+        this.migrationService.loadGroups(file);
+        return new ResponseEntity<>(HttpStatus.CREATED);
+    }
 
     private ResponseEntity<InputStreamResource> processFile(File modifiedFile) {
         try {

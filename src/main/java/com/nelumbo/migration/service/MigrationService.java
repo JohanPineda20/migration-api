@@ -43,6 +43,7 @@ public class MigrationService {
     private final TabsFeign tabsFeign;
     private final WorksPositionCategoriesFeign worksPositionCategoriesFeign;
     private final WorkPeriodsFeign workPeriodsFeign;
+    private final GroupsFeign groupsFeign;
     private final WorkPeriodsTypesFeign workPeriodsTypesFeign;
     private final WorkPeriodsMaxDurationsFeign workPeriodsMaxDurationsFeign;
     private final WorkPeriodsMaxDailyDurationsFeign workPeriodsMaxDailyDurationsFeign;
@@ -58,6 +59,7 @@ public class MigrationService {
     Map<String,Long> profileResponseMap = new ConcurrentHashMap<>();
 
     Map<String,Long> workPeriodsMap = new ConcurrentHashMap<>();
+    Map<String,Long> groupsMap = new ConcurrentHashMap<>();
     Map<String,Long> workPositionCategoriesMap = new ConcurrentHashMap<>();
     
     @Value("${email}")
@@ -419,6 +421,7 @@ public class MigrationService {
                         personalLeavingValues.put("Fecha de baja", (row.getCell(38) == null) ? "" : row.getCell(38).getStringCellValue());
                         personalLeavingValues.put("Fecha de baja del sistema", (row.getCell(39) == null) ? "" : row.getCell(39).getStringCellValue());
                     }
+                    String nameGroup = (row.getCell(34) == null) ? null : row.getCell(34).getStringCellValue();
 
                     profileSecValueRequestList.add(informacionPersonal);
                     profileSecValueRequestList.add(informacionBiografica);
@@ -448,6 +451,9 @@ public class MigrationService {
                     if (workPeriodId == null) throw new RuntimeException("work period".concat(row.getCell(16).getStringCellValue().concat(" not found")));
                     workPeriodsFeign.createWorkPeriodAssignments(bearerToken, workPeriodAssignRequest, workPeriodId);
 
+                    if(nameGroup != null) {
+                        this.loadGroupsAssignments(bearerToken, nameGroup, profileResponse.getData().getId());
+                    }
                 } catch (ErrorResponseException e) {
                     log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getError().getErrors().getFields());
                     
@@ -463,6 +469,7 @@ public class MigrationService {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
+
     public void migrateReferences(MultipartFile file) {
         String bearerToken = this.getBearerToken();
 
@@ -491,6 +498,26 @@ public class MigrationService {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
+    
+    private void loadGroupsAssignments(String bearerToken, String nameGroup, Long idProfile) {
+
+        Long idGroup = this.groupsMap.get(nameGroup);
+
+        Set<Long> idProfiles = new HashSet<>();
+        Set<Long> idGroups = new HashSet<>();
+        idProfiles.add(idProfile);
+        idGroups.add(idGroup);
+
+        GroupsProfRequest groupsProfRequest = new GroupsProfRequest();
+        groupsProfRequest.setProfileIds(idProfiles);
+        groupsProfRequest.setGroupIds(idGroups);
+        groupsProfRequest.setTemporal(false);
+        groupsProfRequest.setAllProfiles(false);
+        groupsProfRequest.setAllProfiles(false);
+
+        this.groupsFeign.createGroupsAssigments(bearerToken, groupsProfRequest);
+    }
+
     public void migrateStoreWorkPeriods(MultipartFile file) {
         String bearerToken = this.getBearerToken();
 
@@ -957,7 +984,7 @@ public class MigrationService {
                                     if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
                                         fieldsValues.put(nameColumn, cell.getDateCellValue());
                                     } else {
-                                        fieldsValues.put(nameColumn, cell.getNumericCellValue());
+                                        fieldsValues.put(nameColumn, (int) cell.getNumericCellValue());
                                     }
                                     break;
                                 case BOOLEAN:
@@ -1244,6 +1271,78 @@ public class MigrationService {
             this.logProcessingExcelFile(e);
         }
         return modifiedFile;
+    }
+    
+    public void loadGroups(MultipartFile file) {
+
+        String bearerToken = this.getBearerToken();
+
+        // Para abrir el workbook y que se cierre automáticamente al finalizar
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            // Nos posicionamos en la primera hoja
+            Sheet sheet = workbook.getSheet("grupos");
+
+            this.logSheetNameNumberOfRows(sheet);
+
+            Row rowNames = sheet.getRow(0);
+            Integer cellName = null;
+            Integer cellDescription = null;
+
+
+            for (int i = 0; i < rowNames.getPhysicalNumberOfCells(); i++) {
+                Cell columnName = rowNames.getCell(i);
+
+                if(columnName == null) {
+                    continue;
+                } else if (columnName.getStringCellValue().equalsIgnoreCase("nombre")) {
+                    cellName = i;
+                } else if(columnName.getStringCellValue().equalsIgnoreCase("descripcion")) {
+                    cellDescription = i;
+                }
+            }
+
+            if(cellName == null || cellDescription == null) {
+                throw new NullCellException("name / description column do not exist");
+            }
+
+            // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
+            for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
+                try {
+                    Row row = sheet.getRow(i);
+
+                    if(row.getCell(cellName) == null) {
+                        throw new NullCellException("name cell can not be null");
+                    }
+
+                    String name = (row.getCell(cellName).getStringCellValue()).trim();
+                    String description = (row.getCell(cellDescription) == null) ? null : (row.getCell(cellDescription).getStringCellValue()).trim();
+
+                    log.info("Group with name: " + name + "\ndescription: " + description);
+
+                    // Preparamos el objeto que irá en el body
+                    GroupsRequest groupsRequest = new GroupsRequest();
+                    groupsRequest.setName(name);
+                    groupsRequest.setDescription(description);
+
+                    // Realizamos la petición
+                    this.groupsFeign.createGroups(bearerToken, groupsRequest);
+                } catch(ErrorResponseException e) {
+                    this.logRowErrorResponse(i, e);
+                } catch (Exception e) {
+                    this.logRowError(i, e);
+                }
+            }
+
+            List<DefaultNameResponse> groups = this.groupsFeign.findAllGroupNames(bearerToken).getData();
+            groups.forEach(group -> groupsMap.put(group.getName(), group.getId()));
+
+        } catch(ErrorResponseException e) {
+            log.error("Error searching groups, Description: " + e.getError().getErrors().getDescription() 
+                        + "\n Fields: " + e.getError().getErrors().getFields().toString());
+        } catch (Exception e) {
+            this.logProcessingExcelFile(e);
+        }
     }
 
     private String getBearerToken() {
