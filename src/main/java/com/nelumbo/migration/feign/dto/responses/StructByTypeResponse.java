@@ -4,10 +4,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.util.List;
-
 @Getter
 @Setter
-public class StoreDetailResponse {
-    private Long id;
-    private List<StructByTypeResponse> structuresByType;
+public class StructByTypeResponse {
+    private List<OrgEntDetailResponse> details;
 }

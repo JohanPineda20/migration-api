@@ -26,53 +26,23 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class MigrationService {
-
-    private final CountryFeign countryFeign;
-    private final CostCenterFeign costCenterFeign;
-    private final LoginFeign loginFeign;
-    private final StoreFeign storeFeign;
-    private final OrgEntityFeign orgEntityFeign;
-    private final WorkPositionFeign workPositionFeign;
-    private final ProfileFeign profileFeign;
-    private final CompCategoriesFeign compCategoriesFeign;
-    private final TabsFeign tabsFeign;
-    private final WorksPositionCategoriesFeign worksPositionCategoriesFeign;
-    private final WorkPeriodsFeign workPeriodsFeign;
-    private final GroupsFeign groupsFeign;
-    private final WorkPeriodsTypesFeign workPeriodsTypesFeign;
-    private final WorkPeriodsMaxDurationsFeign workPeriodsMaxDurationsFeign;
-    private final WorkPeriodsMaxDailyDurationsFeign workPeriodsMaxDailyDurationsFeign;
-    private final DurationsFeign durationsFeign;
-    private final WorkTurnTypesFeign workTurnTypesFeign;
-
-    Map<String, Long> compensationCategoriesResponseMap = new ConcurrentHashMap<>();
-    Map<String, Long> compensationTabResponseMap = new ConcurrentHashMap<>();
-    Map<String, Long> costCenterResponseMap = new ConcurrentHashMap<>();
-    Map<String, Long> storeResponseMap = new ConcurrentHashMap<>();
-    Map<String,Map<String, Long>> storeDetailResponseMap = new ConcurrentHashMap<>();
-    Map<String,Long> workPositionResponseMap = new ConcurrentHashMap<>();
-    Map<String,Long> profileResponseMap = new ConcurrentHashMap<>();
-
-    Map<String,Long> workPeriodsMap = new ConcurrentHashMap<>();
-    Map<String,Long> groupsMap = new ConcurrentHashMap<>();
-    Map<String,Long> workPositionCategoriesMap = new ConcurrentHashMap<>();
-    
-    @Value("${email}")
-    private String email;
-
-    @Value("${password}")
-    private String password;
-
-    //constantes
     private static final String BEARER = "Bearer ";
     private static final String MODIFIED = "modified_";
     private static final String SHEET = "Estamos con la hoja: ";
     private static final String COUNTROWS = "La cantidad de filas es: ";
+    @Value("${email}")
+    private String email;
+    @Value("${password}")
+    private String password;
+
+    private final LoginFeign loginFeign;
+    private final MigrationFeign migrationFeign;
 
     public void migrateCostCenters(MultipartFile file) {
         String bearerToken = this.getBearerToken();
@@ -96,15 +66,15 @@ public class MigrationService {
                     costCenterRequest.setCode(cellCode.getStringCellValue());
                     costCenterRequest.setDenomination(row.getCell(1).getStringCellValue());
 
-                    DefaultResponse<List<CountryResponse>> countryResponse = countryFeign.findAll();
+                    DefaultResponse<List<CountryResponse>> countryResponse = migrationFeign.findAll(bearerToken);
                     Long countryId = countryResponse.getData().stream()
                             .filter(country -> country.getName().equalsIgnoreCase(row.getCell(2).getStringCellValue()))
                             .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(2).getStringCellValue().concat(" not found"))));
-                    DefaultResponse<List<CountryResponse>> stateResponse = countryFeign.findAllStatesByCountryId(countryId);
+                    DefaultResponse<List<CountryResponse>> stateResponse = migrationFeign.findAllStatesByCountryId(bearerToken,countryId);
                     Long stateId = stateResponse.getData().stream()
                             .filter(state -> state.getName().equalsIgnoreCase(row.getCell(3).getStringCellValue()))
                             .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(3).getStringCellValue().concat(" not found"))));
-                    DefaultResponse<List<CountryResponse>> cityResponse = countryFeign.findAllCitesByStateIdAndCountryId(countryId, stateId);
+                    DefaultResponse<List<CountryResponse>> cityResponse = migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId);
                     Long cityId = cityResponse.getData().stream()
                             .filter(city -> city.getName().equalsIgnoreCase(row.getCell(4).getStringCellValue()))
                             .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(4).getStringCellValue().concat(" not found"))));
@@ -120,8 +90,13 @@ public class MigrationService {
                         }
                     });
 
-                    DefaultResponse<CostCenterResponse> costCenterResponse = costCenterFeign.createCostCenter(bearerToken, costCenterRequest);
-                    costCenterResponseMap.put(costCenterResponse.getData().getCode(), costCenterResponse.getData().getId());
+                    migrationFeign.createCostCenter(bearerToken, costCenterRequest);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet centro de costos: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet centro de costos: " + e.getMessage());
                 }
@@ -147,15 +122,15 @@ public class MigrationService {
                     storeRequest.setCode(code.getStringCellValue());
                     storeRequest.setDenomination(row.getCell(1).getStringCellValue());
 
-                    DefaultResponse<List<CountryResponse>> countryResponse = countryFeign.findAll();
+                    DefaultResponse<List<CountryResponse>> countryResponse = migrationFeign.findAll(bearerToken);
                     Long countryId = countryResponse.getData().stream()
                             .filter(country -> country.getName().equalsIgnoreCase(row.getCell(2).getStringCellValue()))
                             .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(2).getStringCellValue().concat(" not found"))));
-                    DefaultResponse<List<CountryResponse>> stateResponse = countryFeign.findAllStatesByCountryId(countryId);
+                    DefaultResponse<List<CountryResponse>> stateResponse = migrationFeign.findAllStatesByCountryId(bearerToken, countryId);
                     Long stateId = stateResponse.getData().stream()
                             .filter(state -> state.getName().equalsIgnoreCase(row.getCell(3).getStringCellValue()))
                             .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(3).getStringCellValue().concat(" not found"))));
-                    DefaultResponse<List<CountryResponse>> cityResponse = countryFeign.findAllCitesByStateIdAndCountryId(countryId, stateId);
+                    DefaultResponse<List<CountryResponse>> cityResponse = migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId);
                     Long cityId = cityResponse.getData().stream()
                             .filter(city -> city.getName().equalsIgnoreCase(row.getCell(4).getStringCellValue()))
                             .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(4).getStringCellValue().concat(" not found"))));
@@ -169,10 +144,19 @@ public class MigrationService {
                     storeRequest.setLatitude(row.getCell(7).getNumericCellValue());
                     storeRequest.setLongitude(row.getCell(8).getNumericCellValue());
                     storeRequest.setGeorefDistance((long) row.getCell(9).getNumericCellValue());
-                    Long costCenterId = row.getCell(10) != null ? costCenterResponseMap.get(row.getCell(10).getStringCellValue()) : null;
+                    String costCenter = row.getCell(10) != null ? row.getCell(10).getStringCellValue() : null;
+                    Long costCenterId = null;
+                    if(costCenter != null) {
+                        costCenterId = migrationFeign.findCostCenterByCode(bearerToken, costCenter).getData().getId();
+                    }
                     storeRequest.setCostCenterId(costCenterId);
-                    DefaultResponse<StoreResponse> storeResponse = storeFeign.createStore(bearerToken, storeRequest);
-                    storeResponseMap.put(storeResponse.getData().getCode(), storeResponse.getData().getId());
+                    migrationFeign.createStore(bearerToken, storeRequest);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
                 }
@@ -183,18 +167,18 @@ public class MigrationService {
         }
     }
 
-    public void migrateStoresOrgEntities(MultipartFile file) {
+    public void migrateStoresOrgEntitiesGeographic(MultipartFile file) {
         String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
-            Sheet sheet = workbook.getSheet("sucursal_org_entities");
+            Sheet sheet = workbook.getSheet("sucursal_estructura_geografica");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
                 try {
                     Row row = sheet.getRow(i);
 
-                    Long storeId = storeResponseMap.get(row.getCell(0).getStringCellValue());
+                    Long storeId = migrationFeign.findStoreByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
 
                     StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
                     List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
@@ -203,9 +187,9 @@ public class MigrationService {
                     Long divisionId = null;
                     Long zonaId = null;
 
-                    Cell cellRegion = row.getCell(1);
-                    Cell cellDivision = row.getCell(2);
-                    Cell cellZona = row.getCell(3);
+                    Cell cellRegion = row.getCell(2);
+                    Cell cellDivision = row.getCell(3);
+                    Cell cellZona = row.getCell(4);
 
                     orgEntityDetailIds.add(1L);
                     if (cellRegion != null || cellDivision != null || cellZona != null) {
@@ -233,38 +217,73 @@ public class MigrationService {
                             orgEntityDetailIds.add(zonaId);
                         }
                     }
-                    storeFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
+                    migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_geografica: " + e.getError().getErrors().getFields());
 
-                    Cell cellDepartamento = row.getCell(4);
-                    if (cellDepartamento == null) throw new RuntimeException("store need one or more departments");
-                    String [] departments = cellDepartamento.getStringCellValue().split(",");
-
-                    storeDetailResponseMap.put(row.getCell(0).getStringCellValue(), new HashMap<>());
-                    for (String department : departments) {
-                        DefaultResponse<Page<OrgEntityResponse>> entityResponse = orgEntityFeign.findAllInstancesParentOrganizationEntityDetail(
-                                bearerToken, 5L, 0L);
-                        Long departmentId = entityResponse.getData().getContent().stream()
-                                .filter(entity -> entity.getName().equalsIgnoreCase(department))
-                                .findFirst()
-                                .map(OrgEntityResponse::getId)
-                                .orElseThrow(() -> new RuntimeException("department ".concat(department).concat(" not found")));
-                        orgEntityDetailIds = new ArrayList<>();
-                        orgEntityDetailIds.add(departmentId);
-                        storeDetailRequest.setOrgEntityDetailIds(orgEntityDetailIds);
-                        DefaultResponse<StoreDetailResponse> storeDetailResponse = storeFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
-                        storeDetailResponseMap.get(row.getCell(0).getStringCellValue()).put(department, storeDetailResponse.getData().getId());
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_org_entities: " + e.getMessage());
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_geografica: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
+    public void migrateStoresOrgEntitiesOrganizative(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
 
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+            Sheet sheet = workbook.getSheet("sucursal_estructura_organizativ");
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+
+                    Long storeId = migrationFeign.findStoreByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+
+                    StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
+                    List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
+
+                    Long areaId = null;
+                    Long departamentoId = null;
+
+                    Cell cellArea = row.getCell(1);
+                    Cell cellDepartamento = row.getCell(2);
+
+
+                        if (cellArea != null) {
+                            areaId = getEntityId(bearerToken, cellArea, 5L, 0L, "area");
+                            orgEntityDetailIds.add(areaId);
+                        }
+
+                        if (cellDepartamento != null) {
+                            if (areaId == null) {
+                                throw new RuntimeException("Invalid organizative structure: missing area");
+                            }
+                            departamentoId = getEntityId(bearerToken, cellDepartamento, 6L, areaId, "departamento");
+                            orgEntityDetailIds.add(departamentoId);
+                        }
+                    migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+    }
     private Long getEntityId(String bearerToken, Cell cell, Long entityType, Long parentId, String entityName) {
-        DefaultResponse<Page<OrgEntityResponse>> entityResponse = orgEntityFeign.findAllInstancesParentOrganizationEntityDetail(
+        DefaultResponse<Page<OrgEntityResponse>> entityResponse = migrationFeign.findAllInstancesParentOrganizationEntityDetail(
                 bearerToken, entityType, parentId
         );
 
@@ -275,6 +294,37 @@ public class MigrationService {
                 .orElseThrow(() -> new RuntimeException(entityName.concat(" ").concat(cell.getStringCellValue()).concat(" not found")));
     }
 
+    public void migrateStoreWorkPeriods(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
+
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("sucursal_jornadas");
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+                    StoreWorkPeriodRequest storeWorkPeriodRequest = new StoreWorkPeriodRequest();
+                    Long storeId = migrationFeign.findStoreByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+                    Long workPeriodId = migrationFeign.findWorkPeriodByNameAndWorkPeriodType(bearerToken, row.getCell(1).getStringCellValue(), "Fixed Scheduled/Regular shift").getData().getId();
+                    storeWorkPeriodRequest.setWorkPeriodId(workPeriodId);
+                    migrationFeign.createStoreWorkPeriods(bearerToken, storeWorkPeriodRequest, storeId);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_jornadas: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_jornadas: " + e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+    }
     public void migrateWorkPositions(MultipartFile file) {
         String bearerToken = this.getBearerToken();
 
@@ -292,23 +342,58 @@ public class MigrationService {
                     workPositionRequest.setDenomination(row.getCell(1).getStringCellValue());
                     workPositionRequest.setAuthorizedStaff((long)row.getCell(2).getNumericCellValue());
                     workPositionRequest.setStatusId(1L);
-                    workPositionRequest.setWorkPosCatId(workPositionCategoriesMap.get(row.getCell(3).getStringCellValue()));
-                    workPositionRequest.setStoreId(storeResponseMap.get(row.getCell(4).getStringCellValue()));
-                    workPositionRequest.setStoreOrganizativeId(storeDetailResponseMap.get(row.getCell(4).getStringCellValue()).get(row.getCell(5).getStringCellValue()));
-                    Long costCenterId = row.getCell(6) != null ? costCenterResponseMap.get(row.getCell(6).getStringCellValue()) : null;
-                    workPositionRequest.setCostCenterId(costCenterId);
-                    DefaultResponse<WorkPositionDetailResponse> workPositionDetailResponse = workPositionFeign.createWorkPosition(bearerToken, workPositionRequest);
-                    workPositionResponseMap.put(workPositionDetailResponse.getData().getWorkPosition().getCode(), workPositionDetailResponse.getData().getWorkPosition().getId());
-                    
-                    WorkPositionUpdateRequest wPUReq = WorkPositionUpdateRequest.builder()
-                            .compCategoryId(compensationCategoriesResponseMap.get(row.getCell(7).getStringCellValue()))
-                            .compTabId(compensationTabResponseMap.get(row.getCell(8).getStringCellValue()))
-                            .minSalary((long)row.getCell(9).getNumericCellValue())
-                            .build();
 
-                    workPositionFeign.updateWorkPosition(bearerToken, wPUReq, workPositionDetailResponse.getData().getWorkPosition().getId());
+                    Long workPosCatId = migrationFeign.findWorkPosCategoryByCode(bearerToken, row.getCell(3).getStringCellValue()).getData().getId();
+                    workPositionRequest.setWorkPosCatId(workPosCatId);
+
+                    Long storeId = migrationFeign.findStoreByCode(bearerToken, row.getCell(4).getStringCellValue()).getData().getId();
+                    workPositionRequest.setStoreId(storeId);
+
+                    Long storeOrganizativeId = null;
+                    Cell cellArea = row.getCell(5);
+                    if(cellArea == null) throw new RuntimeException("Area is required");
+                    DefaultResponse<StoreDetailResponse> storeDetailResponse = migrationFeign.findAllStoresDetails(bearerToken, storeId);
+                    //Obtener las estructuras organizativas de la sucursal cuya area sea igual a cellArea
+                    List<OrgEntDetailResponse> areasFiltradas = storeDetailResponse.getData().getStructuresByType().stream()
+                            .flatMap(structureType -> structureType.getDetails().stream())
+                            .filter(detail -> detail.getStructures().stream().anyMatch(structure -> cellArea.getStringCellValue().equalsIgnoreCase(structure.getName())))
+                            .toList();
+                    //Si la lista es vacia es porque ninguna de las estructuras organizativas de la sucursal tiene esa area
+                    if (areasFiltradas.isEmpty()) throw new RuntimeException("Area ".concat(cellArea.getStringCellValue()).concat(" not found"));
+
+                    Cell cellDepartamento = row.getCell(6);
+                    if (cellDepartamento != null) {
+                        //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas tienen el departamento
+                        Optional<OrgEntDetailResponse> areaConDepartamento = areasFiltradas.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() != null && !structure.getChildren().isEmpty() && structure.getChildren().get(0) != null && structure.getChildren().stream().anyMatch(child -> cellDepartamento.getStringCellValue().equalsIgnoreCase(child.getName()))))
+                                .findFirst();
+                        //Si el optional es vacio es porque ningun area tiene ese departamento
+                        if (areaConDepartamento.isEmpty()) throw new RuntimeException("Departamento ".concat(cellDepartamento.getStringCellValue()).concat(" not found"));
+                        storeOrganizativeId = areaConDepartamento.get().getId();
+                    }
+                    else  {
+                        //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas no tiene departamento
+                        Optional<OrgEntDetailResponse> areaSinDepartamento = areasFiltradas.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() == null || structure.getChildren().isEmpty() || structure.getChildren().get(0) == null))
+                                .findFirst();
+                        //Si el optional es vacio es porque todas las areas tienen un departamento y se necesita que en el excel se envíe el departamento para buscarlo
+                        if(areaSinDepartamento.isEmpty()) throw new RuntimeException("A departamento is required");
+                        storeOrganizativeId = areaSinDepartamento.get().getId();
+                    }
+                    workPositionRequest.setStoreOrganizativeId(storeOrganizativeId);
+                    String costCenter = row.getCell(7) != null ? row.getCell(7).getStringCellValue() : null;
+                    Long costCenterId = null;
+                    if(costCenter != null) {
+                        costCenterId = migrationFeign.findCostCenterByCode(bearerToken, costCenter).getData().getId();
+                    }
+                    workPositionRequest.setCostCenterId(costCenterId);
+                    migrationFeign.createWorkPosition(bearerToken, workPositionRequest);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet cargos: " + e.getMessage());
+                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
                 }
             }
 
@@ -316,13 +401,59 @@ public class MigrationService {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
+    public void migrateWorkPositionsDetails(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
 
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("cargo");
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+
+                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getWorkPosition().getId();
+                    String compCategory = row.getCell(8) != null ? row.getCell(8).getStringCellValue() : null;
+                    Long compCategoryId = null;
+                    if(compCategory != null){
+                        compCategoryId = migrationFeign.findCompCategoryByCode(bearerToken, compCategory).getData().getId();
+                    }
+                    String compTab = row.getCell(9) != null ? row.getCell(9).getStringCellValue() : null;
+                    Long compTabId = null;
+                    if(compTab != null){
+                        compTabId = migrationFeign.findCompTabByCode(bearerToken, compTab).getData().getId();
+                    }
+                    Long minSalary = row.getCell(10) != null ? (long)row.getCell(10).getNumericCellValue() : null;
+                    WorkPositionUpdateRequest wPUReq = WorkPositionUpdateRequest.builder()
+                            .compCategoryId(compCategoryId)
+                            .compTabId(compTabId)
+                            .minSalary(minSalary)
+                            .build();
+                    if(!(compCategoryId == null && compTabId == null && minSalary == null)){
+                        migrationFeign.updateWorkPosition(bearerToken, wPUReq, workPositionId);
+                    }
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+    }
     public void migrateProfiles(MultipartFile file) {
         String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
-            Sheet sheet = workbook.getSheet("perfiles");
+            Sheet sheet = workbook.getSheet("empleados");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -361,21 +492,22 @@ public class MigrationService {
                     datosPersonalesValues.put("NSS", row.getCell(8).getStringCellValue());
                     datosPersonalesValues.put("INFONAVIT", row.getCell(9) != null ? row.getCell(9).getStringCellValue() : "");
                     datosPersonalesValues.put("FONACOT", row.getCell(10) != null ? row.getCell(10).getStringCellValue(): "");
+                    datosPersonalesValues.put("ST", row.getCell(11) != null ? row.getCell(11).getStringCellValue(): ""); //no se sabe que es, tampoco esta en base de datos
 
                     ProfileSecValueRequest direccion = new ProfileSecValueRequest();
                     direccion.setKeyword("PSAS05");
                     Map<String, Object> direccionValues = direccion.getFieldsValues();
                     direccionValues.put("Dirección", row.getCell(19).getStringCellValue());
                     direccionValues.put("Transporte", (row.getCell(24) == null) ? "" : row.getCell(24).getStringCellValue());
-                    DefaultResponse<List<CountryResponse>> countryResponse = countryFeign.findAll();
+                    DefaultResponse<List<CountryResponse>> countryResponse = migrationFeign.findAll(bearerToken);
                     CountryResponse paisResidencia = countryResponse.getData().stream()
                             .filter(country -> country.getName().equalsIgnoreCase(row.getCell(20).getStringCellValue()))
                             .findFirst().orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(20).getStringCellValue().concat(" not found"))));
-                    DefaultResponse<List<CountryResponse>> stateResponse = countryFeign.findAllStatesByCountryId(paisResidencia.getId());
+                    DefaultResponse<List<CountryResponse>> stateResponse = migrationFeign.findAllStatesByCountryId(bearerToken, paisResidencia.getId());
                     CountryResponse estadoResidencia = stateResponse.getData().stream()
                             .filter(state -> state.getName().equalsIgnoreCase(row.getCell(21).getStringCellValue()))
                             .findFirst().orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(21).getStringCellValue().concat(" not found"))));
-                    DefaultResponse<List<CountryResponse>> cityResponse = countryFeign.findAllCitesByStateIdAndCountryId(paisResidencia.getId(), estadoResidencia.getId());
+                    DefaultResponse<List<CountryResponse>> cityResponse = migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, paisResidencia.getId(), estadoResidencia.getId());
                     CountryResponse ciudadResidencia = cityResponse.getData().stream()
                             .filter(city -> city.getName().equalsIgnoreCase(row.getCell(22).getStringCellValue()))
                             .findFirst().orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(22).getStringCellValue().concat(" not found"))));
@@ -389,79 +521,36 @@ public class MigrationService {
                     contactoValues.put("Contacto 1", (row.getCell(23) == null) ? "" : row.getCell(23).getStringCellValue());
 
                     ProfileSecValueRequest dependientes = null;
-                    if(row.getCell(33) != null) {
+                    if(row.getCell(26) != null) {
                         dependientes = new ProfileSecValueRequest();
                         dependientes.setKeyword("PSDP09");
                         Map<String, Object> dependientesValues = dependientes.getFieldsValues();
-                        dependientesValues.put("Cantidad de dependientes económicos", (int) row.getCell(33).getNumericCellValue());
+                        dependientesValues.put("Cantidad de dependientes económicos", (int) row.getCell(26).getNumericCellValue());
                     }
-
-                    ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
-                    informacionPago.setKeyword("PSPM14");
-                    Map<String, Object> informacionPagoValues = informacionPago.getFieldsValues();
-                    informacionPagoValues.put("Banco", row.getCell(26).getStringCellValue());
-                    informacionPagoValues.put("Cuenta bancaria", row.getCell(27).getStringCellValue());
-                    informacionPagoValues.put("Clabe interbancaria", row.getCell(28).getStringCellValue());
-                    informacionPagoValues.put("Titular de la cuenta", row.getCell(29).getStringCellValue());
-
-                    ProfileSecValueRequest personalLeaving = null;
-                    if(row.getCell(38) != null || row.getCell(39) != null) {
-                        personalLeaving = new ProfileSecValueRequest();
-                        personalLeaving.setKeyword("PSPL18");
-                        Map<String, Object> personalLeavingValues = personalLeaving.getFieldsValues();
-
-                        if(row.getCell(38) != null) {
-                            LocalDate.parse(row.getCell(38).getStringCellValue(), formatters);
-                        }
-                        
-                        if(row.getCell(39) != null) {
-                            LocalDate.parse(row.getCell(39).getStringCellValue(), formatters);
-                        }
-    
-                        personalLeavingValues.put("Fecha de baja", (row.getCell(38) == null) ? "" : row.getCell(38).getStringCellValue());
-                        personalLeavingValues.put("Fecha de baja del sistema", (row.getCell(39) == null) ? "" : row.getCell(39).getStringCellValue());
-                    }
-                    String nameGroup = (row.getCell(34) == null) ? null : row.getCell(34).getStringCellValue();
 
                     profileSecValueRequestList.add(informacionPersonal);
                     profileSecValueRequestList.add(informacionBiografica);
                     profileSecValueRequestList.add(datosPersonales);
                     profileSecValueRequestList.add(direccion);
                     profileSecValueRequestList.add(contacto);
-
                     if(dependientes != null) {
                         profileSecValueRequestList.add(dependientes);
                     }
 
-                    profileSecValueRequestList.add(informacionPago);
-                    
-                    if(personalLeaving != null) {
-                        profileSecValueRequestList.add(personalLeaving);
-                    }
-
                     profileRequest.setSectionValues(profileSecValueRequestList);
-                    Long workPositionId = workPositionResponseMap.get(row.getCell(25).getStringCellValue());
-                    if (workPositionId == null) throw new RuntimeException("work position ".concat(row.getCell(25).getStringCellValue().concat(" not found")));
-                    profileRequest.setWorkPositionId(workPositionId);
-                    DefaultResponse<ProfileResponse> profileResponse = profileFeign.createProfile(bearerToken, profileRequest);
-                    profileResponseMap.put(clave.getStringCellValue(), profileResponse.getData().getId());
-                    WorkPeriodAssignRequest workPeriodAssignRequest = new WorkPeriodAssignRequest();
-                    workPeriodAssignRequest.setProfileIds(Collections.singleton(profileResponse.getData().getId()));
-                    Long workPeriodId = workPeriodsMap.get(row.getCell(16).getStringCellValue());
-                    if (workPeriodId == null) throw new RuntimeException("work period".concat(row.getCell(16).getStringCellValue().concat(" not found")));
-                    workPeriodsFeign.createWorkPeriodAssignments(bearerToken, workPeriodAssignRequest, workPeriodId);
 
-                    if(nameGroup != null) {
-                        this.loadGroupsAssignments(bearerToken, nameGroup, profileResponse.getData().getId());
-                    }
+                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, row.getCell(25).getStringCellValue()).getData().getWorkPosition().getId();
+
+                    profileRequest.setWorkPositionId(workPositionId);
+                    migrationFeign.createProfile(bearerToken, profileRequest);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getError().getErrors().getFields());
+                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getError().getErrors().getFields());
                     
                     if(e.getError().getErrors().getId() != null) {
                         log.error("With model_fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet perfiles: " + e.getMessage());
+                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getMessage());
                 }
             }
 
@@ -469,7 +558,87 @@ public class MigrationService {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
+    public void migrateProfilesWorkPeriods(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
 
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("empleados");
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+
+                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+
+                    WorkPeriodAssignRequest workPeriodAssignRequest = new WorkPeriodAssignRequest();
+                    workPeriodAssignRequest.setProfileIds(Collections.singleton(profileId));
+
+                    Long workPeriodId = migrationFeign.findWorkPeriodByNameAndWorkPeriodType(bearerToken, row.getCell(16).getStringCellValue(), "Fixed Scheduled/Regular shift").getData().getId();
+
+                    migrationFeign.createWorkPeriodAssignments(bearerToken, workPeriodAssignRequest, workPeriodId);
+
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getError().getErrors().getFields());
+
+                    if(e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+    }
+    public void migrateProfilesGroups(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
+
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("empleados");
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+
+                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+
+                    String group = row.getCell(27) != null ? row.getCell(27).getStringCellValue() : null;
+                    if(group != null) {
+
+                        Long idGroup = migrationFeign.findGroupByName(bearerToken, group).getData().getId();
+
+                        Set<Long> idProfiles = new HashSet<>();
+                        Set<Long> idGroups = new HashSet<>();
+                        idProfiles.add(profileId);
+                        idGroups.add(idGroup);
+
+                        GroupsProfRequest groupsProfRequest = new GroupsProfRequest();
+                        groupsProfRequest.setProfileIds(idProfiles);
+                        groupsProfRequest.setGroupIds(idGroups);
+                        groupsProfRequest.setTemporal(false);
+                        groupsProfRequest.setAllProfiles(false);
+
+                        this.migrationFeign.createGroupsAssigments(bearerToken, groupsProfRequest);
+                    }
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getError().getErrors().getFields());
+
+                    if(e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+    }
     public void migrateReferences(MultipartFile file) {
         String bearerToken = this.getBearerToken();
 
@@ -481,15 +650,24 @@ public class MigrationService {
             for (int i = 1; i < numberOfRows; i++) {
                 try {
                     Row row = sheet.getRow(i);
-                    ProfileSecValueRequest emergencyContact = new ProfileSecValueRequest();
-                    emergencyContact.setKeyword("PSEC08");
-                    Map<String, Object> emergencyContactValues = emergencyContact.getFieldsValues();
-                    emergencyContactValues.put("Nombre", (row.getCell(0) == null) ? "" : row.getCell(0).getStringCellValue());
-                    emergencyContactValues.put("Teléfono", (row.getCell(1) == null) ? "" : row.getCell(1).getStringCellValue());
-                    emergencyContactValues.put("Relación", (row.getCell(2) == null) ? "" : row.getCell(2).getStringCellValue());
-                    Long profileId = profileResponseMap.get(row.getCell(3).getStringCellValue());
-                    if(profileId == null) throw new RuntimeException("profile ".concat(row.getCell(3).getStringCellValue().concat(" not found")));
-                    profileFeign.createProfileSectionValueByProfile(bearerToken,profileId,emergencyContact);
+
+                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+
+                    ProfileSecValueRequest references = new ProfileSecValueRequest();
+                    references.setKeyword("PSRF16");
+                    Map<String, Object> referencesValues = references.getFieldsValues();
+                    referencesValues.put("Nombre", (row.getCell(1) == null) ? "" : row.getCell(1).getStringCellValue());
+                    referencesValues.put("Teléfono", (row.getCell(2) == null) ? "" : row.getCell(2).getStringCellValue());
+                    referencesValues.put("Relación", (row.getCell(3) == null) ? "" : row.getCell(3).getStringCellValue());
+
+                    migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, references);
+
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getError().getErrors().getFields());
+
+                    if(e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
                 } catch (Exception e) {
                     log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getMessage());
                 }
@@ -498,55 +676,96 @@ public class MigrationService {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
-    
-    private void loadGroupsAssignments(String bearerToken, String nameGroup, Long idProfile) {
-
-        Long idGroup = this.groupsMap.get(nameGroup);
-
-        Set<Long> idProfiles = new HashSet<>();
-        Set<Long> idGroups = new HashSet<>();
-        idProfiles.add(idProfile);
-        idGroups.add(idGroup);
-
-        GroupsProfRequest groupsProfRequest = new GroupsProfRequest();
-        groupsProfRequest.setProfileIds(idProfiles);
-        groupsProfRequest.setGroupIds(idGroups);
-        groupsProfRequest.setTemporal(false);
-        groupsProfRequest.setAllProfiles(false);
-        groupsProfRequest.setAllProfiles(false);
-
-        this.groupsFeign.createGroupsAssigments(bearerToken, groupsProfRequest);
-    }
-
-    public void migrateStoreWorkPeriods(MultipartFile file) {
+    public void migrateInfoBancaria(MultipartFile file) {
         String bearerToken = this.getBearerToken();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
-            Sheet sheet = workbook.getSheet("sucursal_jornadas");
+            Sheet sheet = workbook.getSheet("informacion bancaria");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
 
             for (int i = 1; i < numberOfRows; i++) {
                 try {
                     Row row = sheet.getRow(i);
-                    StoreWorkPeriodRequest storeWorkPeriodRequest = new StoreWorkPeriodRequest();
-                    String [] jornadas = row.getCell(1).getStringCellValue().split(",");
-                    Long storeId = storeResponseMap.get(row.getCell(0).getStringCellValue());
-                    if (storeId == null) throw new RuntimeException("Store ".concat(row.getCell(0).getStringCellValue()).concat(" not found"));
-                    for (String jornada:jornadas) {
-                        storeWorkPeriodRequest.setWorkPeriodId(workPeriodsMap.get(jornada));
-                        storeFeign.createStoreWorkPeriods(bearerToken, storeWorkPeriodRequest, storeId);
+
+                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+
+                    ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
+                    informacionPago.setKeyword("PSPM14");
+                    Map<String, Object> informacionPagoValues = informacionPago.getFieldsValues();
+                    informacionPagoValues.put("Banco", row.getCell(1).getStringCellValue());
+                    informacionPagoValues.put("Cuenta bancaria", row.getCell(2).getStringCellValue());
+                    informacionPagoValues.put("Clabe interbancaria", row.getCell(3).getStringCellValue());
+                    informacionPagoValues.put("Titular de la cuenta", row.getCell(4).getStringCellValue());
+
+                    migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, informacionPago);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + e.getError().getErrors().getFields());
+
+                    if(e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_jornadas: " + e.getMessage());
+                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + e.getMessage());
                 }
             }
-
         } catch (Exception e) {
             log.error("Error processing Excel file: " + e.getMessage());
         }
     }
+    public void migratePersonalLeaving(MultipartFile file) {
+        String bearerToken = this.getBearerToken();
 
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("informacion de baja");
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+
+            for (int i = 1; i < numberOfRows; i++) {
+                try {
+                    Row row = sheet.getRow(i);
+
+                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+
+                    ProfileSecValueRequest personalLeaving = new ProfileSecValueRequest();
+                    personalLeaving.setKeyword("PSPL18");
+                    Map<String, Object> personalLeavingValues = personalLeaving.getFieldsValues();
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+                    String fechaBaja = "";
+                    String fechaBajaSistema = "";
+                    String fechaBajaHistorial = "";
+                    if (row.getCell(1) != null) {
+                        fechaBaja = row.getCell(1).getStringCellValue();
+                        LocalDate.parse(fechaBaja, formatter);
+                    }
+                    if (row.getCell(2) != null) {
+                        fechaBajaSistema = row.getCell(2).getStringCellValue();
+                        LocalDate.parse(fechaBajaSistema, formatter);
+                    }
+                    if (row.getCell(3) != null) {
+                        fechaBajaHistorial = row.getCell(3).getStringCellValue();
+                        LocalDate.parse(fechaBajaHistorial, formatter);
+                    }
+                    personalLeavingValues.put("Fecha de baja", fechaBaja);
+                    personalLeavingValues.put("Fecha de baja del sistema", fechaBajaSistema);
+                    personalLeavingValues.put("Fecha de baja historial", fechaBajaHistorial); //no existe en bd
+                    personalLeavingValues.put("Comentario de baja historial", (row.getCell(4) == null) ? "" : row.getCell(4).getStringCellValue()); //no existe en bd
+
+                    migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, personalLeaving);
+                } catch (ErrorResponseException e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet informacion de baja: " + e.getError().getErrors().getFields());
+
+                    if(e.getError().getErrors().getId() != null) {
+                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    }
+                } catch (Exception e) {
+                    log.error("Error processing row " + (i + 1) + " in sheet informacion de baja: " + e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing Excel file: " + e.getMessage());
+        }
+    }
     public File loadCompensationsCategories(MultipartFile file) {
 
         String bearerToken = this.getBearerToken();
@@ -613,7 +832,7 @@ public class MigrationService {
                     log.info("Compensacion a consultar con nombre: " + denomination + " \ncon codigo: " + code);
 
                     // Consultamos si existe la compensación por denominacion
-                    DefaultResponse<List<CompCategoriesResponse>> compCategoriesRes = compCategoriesFeign.simplifiedSearch(bearerToken, denomination);
+                    DefaultResponse<List<CompCategoriesResponse>> compCategoriesRes = migrationFeign.simplifiedSearchCompensationCategories(bearerToken, denomination);
                     boolean existsCompCategoriesByDeno = compCategoriesRes.getData().stream()
                             .anyMatch(comp -> comp.getDenomination().equalsIgnoreCase(denomination));
 
@@ -624,7 +843,7 @@ public class MigrationService {
                     }
 
                     // Consultamos si existe la compensación por el código (no debe existir dos compensaciones con el mismo código)
-                    compCategoriesRes = compCategoriesFeign.simplifiedSearch(bearerToken, code);
+                    compCategoriesRes = migrationFeign.simplifiedSearchCompensationCategories(bearerToken, code);
                     boolean existsCompCategoriesbyCode = compCategoriesRes.getData().stream()
                             .anyMatch(comp -> comp.getCode().equalsIgnoreCase(code));
 
@@ -674,8 +893,7 @@ public class MigrationService {
                     compCategories.setStatusId(idEstatus);
 
                     // Realizamos la petición
-                    CompCategoriesResponse cPRes = compCategoriesFeign.createCompensationCategories(bearerToken, compCategories).getData();
-                    this.compensationCategoriesResponseMap.put(cPRes.getCode(), cPRes.getId());
+                    CompCategoriesResponse cPRes = migrationFeign.createCompensationCategories(bearerToken, compCategories).getData();
                     row.getCell(0).setCellStyle(cellStyle);
                 } catch(ErrorResponseException e) {
                     this.logRowErrorResponse(i, e);
@@ -778,7 +996,7 @@ public class MigrationService {
                     log.info("Tabulador a consultar con nombre: " + denomination + " \ncon codigo: " + code);
 
                     // Consultamos si existe la compensación por nombre
-                    DefaultResponse<List<TabsResponse>> tabsRes = tabsFeign.simplifiedSearch(bearerToken, denomination);
+                    DefaultResponse<List<TabsResponse>> tabsRes = migrationFeign.simplifiedSearchTabs(bearerToken, denomination);
                     boolean existsTabByDeno = tabsRes.getData().stream()
                             .anyMatch(comp -> comp.getDenomination().equalsIgnoreCase(denomination));
 
@@ -790,7 +1008,7 @@ public class MigrationService {
                     }
 
                     // Consultamos si existe la compensación por el código (no debe existir dos compensaciones con el mismo código)
-                    tabsRes = tabsFeign.simplifiedSearch(bearerToken, code);
+                    tabsRes = migrationFeign.simplifiedSearchTabs(bearerToken, code);
                     boolean existsTabByCode = tabsRes.getData().stream()
                             .anyMatch(comp -> comp.getCode().equalsIgnoreCase(code));
 
@@ -852,8 +1070,7 @@ public class MigrationService {
                     tabsRequest.setFieldsValues(fieldsValues);
 
                     // Realizamos la petición
-                    TabsResponse tabRes = tabsFeign.createTab(bearerToken, tabsRequest).getData();
-                    compensationTabResponseMap.put(tabRes.getCode(), tabRes.getId());
+                    TabsResponse tabRes = migrationFeign.createTab(bearerToken, tabsRequest).getData();
                     row.getCell(0).setCellStyle(cellStyle);
                 } catch(ErrorResponseException e) {
                     this.logRowErrorResponse(i, e);
@@ -940,11 +1157,10 @@ public class MigrationService {
                     log.info("Puesto a consultar con nombre: " + denomination + " \ncon codigo: " + code);
 
                     // Consultamos si existe la compensación por nombre
-                    DefaultResponse<List<WorkPositionCategoryResponse>> worksPositionsCategoriesRes = worksPositionCategoriesFeign.simplifiedSearch(bearerToken, denomination);
+                    DefaultResponse<List<WorkPositionCategoryResponse>> worksPositionsCategoriesRes = migrationFeign.simplifiedSearchWorkPositionCategory(bearerToken, denomination);
                     boolean existsWorkByDeno = worksPositionsCategoriesRes.getData().stream()
                             .anyMatch(comp -> {
                                 if(comp.getDenomination().equalsIgnoreCase(denomination)) {
-                                    workPositionCategoriesMap.put(comp.getDenomination(), comp.getId());
                                     return true;
                                 }
                                 return false;
@@ -958,7 +1174,7 @@ public class MigrationService {
                     }
 
                     // Consultamos si existe la compensación por el código (no debe existir dos compensaciones con el mismo código)
-                    worksPositionsCategoriesRes = worksPositionCategoriesFeign.simplifiedSearch(bearerToken, code);
+                    worksPositionsCategoriesRes = migrationFeign.simplifiedSearchWorkPositionCategory(bearerToken, code);
                     boolean existsWorkByCode = worksPositionsCategoriesRes.getData().stream()
                             .anyMatch(comp -> comp.getCode().equalsIgnoreCase(code));
 
@@ -1010,8 +1226,7 @@ public class MigrationService {
                     workPositionCategoryRequest.setStatusId(idEstatus);
 
                     // Realizamos la petición
-                    DefaultResponse<WorkPositionCategoryResponse> wpc = worksPositionCategoriesFeign.createWorkPositionCategory(bearerToken, workPositionCategoryRequest);
-                    workPositionCategoriesMap.put(wpc.getData().getDenomination(), wpc.getData().getId());
+                    DefaultResponse<WorkPositionCategoryResponse> wpc = migrationFeign.createWorkPositionCategory(bearerToken, workPositionCategoryRequest);
                     row.getCell(0).setCellStyle(cellStyle);
                 } catch(ErrorResponseException e) {
                     this.logRowErrorResponse(i, e);
@@ -1033,11 +1248,11 @@ public class MigrationService {
 
         String bearerToken = this.getBearerToken();
 
-        List<WorkPeriodTypeResponse> workPeriodTypesList = workPeriodsTypesFeign.findAllWorkPeriodTypes(bearerToken).getData();
-        List<WorkPeriodMaxDurationsResponse> workPeriodMaxDurationsList = workPeriodsMaxDurationsFeign.findAllWorkPeriodsMaxDurations(bearerToken).getData();
-        List<WorkPeriodMaxDailyDurationsResponse> workPeriodMaxDailyDurationsResponseList = workPeriodsMaxDailyDurationsFeign.findAllWorkPeriodsMaxDailyDurations(bearerToken).getData();
-        List<DurationsResponse> durations = durationsFeign.findAllDurations(bearerToken).getData();
-        List<WorkTurnTypesResponse> workturntypes = workTurnTypesFeign.findAllWorkTurnTypes(bearerToken).getData();
+        List<WorkPeriodTypeResponse> workPeriodTypesList = migrationFeign.findAllWorkPeriodTypes(bearerToken).getData();
+        List<WorkPeriodMaxDurationsResponse> workPeriodMaxDurationsList = migrationFeign.findAllWorkPeriodsMaxDurations(bearerToken).getData();
+        List<WorkPeriodMaxDailyDurationsResponse> workPeriodMaxDailyDurationsResponseList = migrationFeign.findAllWorkPeriodsMaxDailyDurations(bearerToken).getData();
+        List<DurationsResponse> durations = migrationFeign.findAllDurations(bearerToken).getData();
+        List<WorkTurnTypesResponse> workturntypes = migrationFeign.findAllWorkTurnTypes(bearerToken).getData();
 
         // Archivo modificado para devolver
         File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
@@ -1069,7 +1284,7 @@ public class MigrationService {
                     cellName = i;
                 } else if(columnName.getStringCellValue().equalsIgnoreCase("period_type")) {
                     cellPeriodType = i;
-                } else if(columnName.getStringCellValue().equalsIgnoreCase("keyword_max_duracion")) {
+                } else if(columnName.getStringCellValue().equalsIgnoreCase("keyword_max_duration")) {
                     cellKeywordMaxDuration = i;
                 } else if(columnName.getStringCellValue().equalsIgnoreCase("max_daily_duration")) {
                     cellMaxDailyDuration = i;
@@ -1079,9 +1294,9 @@ public class MigrationService {
             if(cellName == null || cellPeriodType == null || cellKeywordMaxDuration == null || cellMaxDailyDuration == null) {
                 Cell cell = rowNames.createCell(rowNames.getPhysicalNumberOfCells() + 1);
                 cell.setCellStyle(this.redCellStyle(workbook));
-                cell.setCellValue("name / period_type / keyword_max_duracion / max_daily_duration column do not exist");
+                cell.setCellValue("name / period_type / keyword_max_duration / max_daily_duration column do not exist");
                 modifiedFile = this.createModifiedWorkbook(workbook, file);
-                throw new NullCellException("name / period_type / keyword_max_duracion / max_daily_duration column do not exist");
+                throw new NullCellException("name / period_type / keyword_max_duration / max_daily_duration column do not exist");
             }
 
             // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
@@ -1101,7 +1316,7 @@ public class MigrationService {
                     }
 
                     if(row.getCell(cellKeywordMaxDuration) == null) {
-                        throw new NullCellException("keyword_max_duracion cell can not be null");
+                        throw new NullCellException("keyword_max_duration cell can not be null");
                     }
 
                     String name = (row.getCell(cellName).getStringCellValue()).trim();
@@ -1254,8 +1469,7 @@ public class MigrationService {
                             + "\nMaximo de duracion por dia id: " + idWorkPeriodMaxDailyDuration);
 
                     // Realizamos la petición
-                    DefaultResponse<WorkPeriodResponse> wpr = workPeriodsFeign.createWorkPeriods(bearerToken, workPeriodRequest);
-                    workPeriodsMap.put(wpr.getData().getName(), wpr.getData().getId());
+                    DefaultResponse<WorkPeriodResponse> wpr = migrationFeign.createWorkPeriods(bearerToken, workPeriodRequest);
                     row.getCell(0).setCellStyle(cellStyle);
                 } catch(ErrorResponseException e) {
                     this.logRowErrorResponse(i, e);
@@ -1326,16 +1540,13 @@ public class MigrationService {
                     groupsRequest.setDescription(description);
 
                     // Realizamos la petición
-                    this.groupsFeign.createGroups(bearerToken, groupsRequest);
+                    this.migrationFeign.createGroups(bearerToken, groupsRequest);
                 } catch(ErrorResponseException e) {
                     this.logRowErrorResponse(i, e);
                 } catch (Exception e) {
                     this.logRowError(i, e);
                 }
             }
-
-            List<DefaultNameResponse> groups = this.groupsFeign.findAllGroupNames(bearerToken).getData();
-            groups.forEach(group -> groupsMap.put(group.getName(), group.getId()));
 
         } catch(ErrorResponseException e) {
             log.error("Error searching groups, Description: " + e.getError().getErrors().getDescription() 

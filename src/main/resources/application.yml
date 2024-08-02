@@ -1,5 +1,5 @@
 server:
-  port: 8081
+  port: 8546
 
 spring:
   application:
@@ -15,4 +15,4 @@ password: ${PASSWORD}
 
 logging:
   file:
-    name: ./migration.log
+    name: /var/www/html/migration/migration.log

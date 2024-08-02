@@ -42,9 +42,14 @@ public class MigrationController {
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
 
-    @PostMapping("stores-org-entities-details")
-    public ResponseEntity<Void> migrateStoresOrgEntities(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateStoresOrgEntities(file);
+    @PostMapping("stores-org-entities-geographic")
+    public ResponseEntity<Void> migrateStoresOrgEntitiesGeographic(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateStoresOrgEntitiesGeographic(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("stores-org-entities-organizative")
+    public ResponseEntity<Void> migrateStoresOrgEntitiesOrganizative(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateStoresOrgEntitiesOrganizative(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
     @PostMapping("stores-work-periods")
@@ -57,15 +62,39 @@ public class MigrationController {
         migrationService.migrateWorkPositions(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
-
+    @PostMapping("work-positions-details")
+    public ResponseEntity<Void> migrateWorkPositionsDetails(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateWorkPositionsDetails(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
     @PostMapping("profiles")
     public ResponseEntity<Void> migrateProfiles(@RequestPart(value = "file") MultipartFile file){
         migrationService.migrateProfiles(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
+    @PostMapping("profiles-work-periods")
+    public ResponseEntity<Void> migrateProfilesWorkPeriods(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateProfilesWorkPeriods(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("profiles-groups")
+    public ResponseEntity<Void> migrateProfilesGroups(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateProfilesGroups(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
     @PostMapping("references")
     public ResponseEntity<Void> migrateReferences(@RequestPart(value = "file") MultipartFile file){
         migrationService.migrateReferences(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("info-bancaria")
+    public ResponseEntity<Void> migrateInfoBancaria(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateInfoBancaria(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("personal-leaving")
+    public ResponseEntity<Void> migratePersonalLeaving(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migratePersonalLeaving(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
     @PostMapping("/load-compensations")
