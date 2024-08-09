@@ -9,5 +9,6 @@ import java.util.List;
 public class ParamOrgEntDetInstDetailResponse {
     private Long id;
     private String name;
+    private OrgEntityResponse orgEntity;
     private List<ParamOrgEntDetInstDetailResponse> children;
 }

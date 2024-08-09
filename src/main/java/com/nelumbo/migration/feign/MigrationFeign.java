@@ -11,6 +11,15 @@ import java.util.List;
 
 @FeignClient(name= "migration", url="${hr-api}/migration", configuration = CustomErrorDecoder.class)
 public interface MigrationFeign {
+
+    @GetMapping(path = "/organization-entities/{orgEntityId}/organization-entity-details")
+    DefaultResponse<OrgEntityDetailResponse> findOrgEntityDetailByName(@RequestHeader("Authorization") String token,
+                                                                       @PathVariable Long orgEntityId,
+                                                                       @RequestParam String name);
+    @PostMapping(value = "/organization-entities/{orgEntityId}/organization-entity-details")
+    void createOrgEntityDetail(@RequestHeader("Authorization") String token,
+                               @RequestBody OrgEntityDetailRequest orgEntityDetailRequest,
+                               @PathVariable Long orgEntityId);
     @GetMapping("/country")
     DefaultResponse<List<CountryResponse>> findAll(@RequestHeader("Authorization") String token);
     @GetMapping("/country/{countryId}/states")
@@ -36,7 +45,7 @@ public interface MigrationFeign {
     DefaultResponse<List<CompCategoriesResponse>> simplifiedSearchCompensationCategories(@RequestHeader("Authorization") String token,
                                                                                          @RequestParam String search);
     @PostMapping("/compensation-category")
-    DefaultResponse<CompCategoriesResponse> createCompensationCategories(@RequestHeader("Authorization") String token,
+    void createCompensationCategories(@RequestHeader("Authorization") String token,
                                                                          @RequestBody CompCategoriesRequest compCategory);
 
 
@@ -47,6 +56,10 @@ public interface MigrationFeign {
     @PostMapping("/cost-center")
     void createCostCenter(@RequestHeader("Authorization") String token,
                           @RequestBody CostCenterRequest costCenterRequest);
+    @PostMapping(path = "/cost-center/{costCenterId}/details")
+    void createCostCenterDetails(@RequestHeader("Authorization") String token,
+                                 @RequestBody CostCenterDetailRequest costCenterDetailRequest,
+                                 @PathVariable Long costCenterId);
 
 
 
@@ -102,7 +115,7 @@ public interface MigrationFeign {
     DefaultResponse<List<TabsResponse>> simplifiedSearchTabs(@RequestHeader("Authorization") String token,
                                                             @RequestParam String search);
     @PostMapping("/compensation-tab")
-    DefaultResponse<TabsResponse> createTab(@RequestHeader("Authorization") String token,
+    void createTab(@RequestHeader("Authorization") String token,
                                             @RequestBody TabsRequest tabsRequest);
 
 
@@ -136,7 +149,7 @@ public interface MigrationFeign {
     DefaultResponse<List<WorkPositionCategoryResponse>> simplifiedSearchWorkPositionCategory(@RequestHeader("Authorization") String token,
                                                                                              @RequestParam String search);
     @PostMapping("/work-position-category")
-    DefaultResponse<WorkPositionCategoryResponse> createWorkPositionCategory(@RequestHeader("Authorization") String token,
+    void createWorkPositionCategory(@RequestHeader("Authorization") String token,
                                                                              @RequestBody WorkPositionCategoryRequest workPositionCategoryRequest);
 
 

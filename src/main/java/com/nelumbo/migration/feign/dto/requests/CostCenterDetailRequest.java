@@ -1,0 +1,13 @@
+package com.nelumbo.migration.feign.dto.requests;
+
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Getter
+@Setter
+public class CostCenterDetailRequest {
+    private List<Long> orgEntityDetailIds = new ArrayList<>();
+}

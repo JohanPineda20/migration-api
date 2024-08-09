@@ -30,9 +30,56 @@ public class MigrationController {
 
     private final MigrationService migrationService;
 
+    @PostMapping("empresa")
+    public ResponseEntity<Void> migrateEmpresa(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateEmpresa(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("region")
+    public ResponseEntity<Void> migrateRegion(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateRegion(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("division")
+    public ResponseEntity<Void> migrateDivision(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateDivision(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("zona")
+    public ResponseEntity<Void> migrateZona(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateZona(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("area")
+    public ResponseEntity<Void> migrateArea(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateArea(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("subarea")
+    public ResponseEntity<Void> migrateSubarea(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateSubarea(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+    @PostMapping("departamento")
+    public ResponseEntity<Void> migrateDepartamento(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateDepartamento(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
     @PostMapping("cost-centers")
     public ResponseEntity<Void> migrateCostCenters(@RequestPart(value = "file") MultipartFile file){
         migrationService.migrateCostCenters(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+
+    @PostMapping("cost-centers-org-entities-geographic")
+    public ResponseEntity<Void> migrateCostCentersOrgEntitiesGeographic(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateCostCentersOrgEntitiesGeographic(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    }
+
+    @PostMapping("cost-centers-org-entities-organizative")
+    public ResponseEntity<Void> migrateCostCentersOrgEntitiesOrganizative(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateCostCentersOrgEntitiesOrganizative(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
 
