@@ -99,11 +99,6 @@ public class MigrationController {
         migrationService.migrateStoresOrgEntitiesOrganizative(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
-    @PostMapping("stores-work-periods")
-    public ResponseEntity<Void> migrateStoreWorkPeriods(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateStoreWorkPeriods(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
-    }
     @PostMapping("work-positions")
     public ResponseEntity<Void> migrateWorkPositions(@RequestPart(value = "file") MultipartFile file){
         migrationService.migrateWorkPositions(file);
@@ -117,11 +112,6 @@ public class MigrationController {
     @PostMapping("profiles")
     public ResponseEntity<Void> migrateProfiles(@RequestPart(value = "file") MultipartFile file){
         migrationService.migrateProfiles(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
-    }
-    @PostMapping("profiles-work-periods")
-    public ResponseEntity<Void> migrateProfilesWorkPeriods(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateProfilesWorkPeriods(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
     @PostMapping("profiles-groups")
@@ -139,39 +129,33 @@ public class MigrationController {
         migrationService.migrateInfoBancaria(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
-    @PostMapping("personal-leaving")
-    public ResponseEntity<Void> migratePersonalLeaving(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migratePersonalLeaving(file);
+    @PostMapping("info-sueldos")
+    public ResponseEntity<Void> migrateInfoSueldos(@RequestPart(value = "file") MultipartFile file){
+        migrationService.migrateInfoSueldos(file);
         return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
     @PostMapping("/load-compensations")
-    public ResponseEntity<InputStreamResource> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = migrationService.loadCompensationsCategories(file);
-        return  processFile(modifiedFile);
+    public ResponseEntity<Void> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file) {
+        migrationService.loadCompensationsCategories(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
 
     @PostMapping("/load-tabs")
-    public ResponseEntity<InputStreamResource> loadTabs(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = migrationService.loadTabs(file);
-        return  processFile(modifiedFile);
+    public ResponseEntity<Void> loadTabs(@RequestPart(value = "file") MultipartFile file) {
+        migrationService.loadTabs(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
 
     @PostMapping("/load-work-position-categories")
-    public ResponseEntity<InputStreamResource> loadWorkPositionCategories(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = migrationService.loadWorkPositionCategories(file);
-        return  processFile(modifiedFile);
-    }
-
-    @PostMapping("/load-work-periods")
-    public ResponseEntity<InputStreamResource> loadWorkPeriods(@RequestPart(value = "file") MultipartFile file) {
-        File modifiedFile = migrationService.loadWorkPeriods(file);
-        return  processFile(modifiedFile);
+    public ResponseEntity<Void> loadWorkPositionCategories(@RequestPart(value = "file") MultipartFile file) {
+        migrationService.loadWorkPositionCategories(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
     
     @PostMapping("/load-groups")
     public ResponseEntity<Void> loadWorkGroups(@RequestPart(value = "file") MultipartFile file) {
-        this.migrationService.loadGroups(file);
-        return new ResponseEntity<>(HttpStatus.CREATED);
+        migrationService.loadGroups(file);
+        return new ResponseEntity<>(HttpStatus.ACCEPTED);
     }
 
     private ResponseEntity<InputStreamResource> processFile(File modifiedFile) {

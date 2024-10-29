@@ -8,9 +8,9 @@ import lombok.Setter;
 @Setter
 @Builder
 public class WorkPositionUpdateRequest {
-
     private Long compTabId;
     private Long compCategoryId;
     private Long orgManagerId;
     private Long approvalManagerId;
+    private Long minSalary;
 }

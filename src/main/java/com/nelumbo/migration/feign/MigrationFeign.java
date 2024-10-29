@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@FeignClient(name= "migration", url="${hr-api}/migration", configuration = CustomErrorDecoder.class)
+@FeignClient(name= "migration", url="${hrcore.organization-api}/migration", configuration = CustomErrorDecoder.class)
 public interface MigrationFeign {
 
     @GetMapping(path = "/organization-entities/{orgEntityId}/organization-entity-details")
@@ -33,20 +33,15 @@ public interface MigrationFeign {
     DefaultResponse<Page<OrgEntityResponse>> findAllInstancesParentOrganizationEntityDetail(@RequestHeader("Authorization") String token,
                                                                                             @PathVariable Long orgEntityId,
                                                                                             @PathVariable Long orgEntDetParentId);
-    @GetMapping("/durations")
-    DefaultResponse<List<DurationsResponse>> findAllDurations(@RequestHeader("Authorization") String token);
 
 
 
     @GetMapping("/compensation-category")
     DefaultResponse<CompCategoriesResponse> findCompCategoryByCode(@RequestHeader("Authorization") String token,
                                                                    @RequestParam String code);
-    @GetMapping("/compensation-category/simplified-search")
-    DefaultResponse<List<CompCategoriesResponse>> simplifiedSearchCompensationCategories(@RequestHeader("Authorization") String token,
-                                                                                         @RequestParam String search);
     @PostMapping("/compensation-category")
     void createCompensationCategories(@RequestHeader("Authorization") String token,
-                                                                         @RequestBody CompCategoriesRequest compCategory);
+                                      @RequestBody CompCategoriesRequest compCategory);
 
 
 
@@ -111,43 +106,15 @@ public interface MigrationFeign {
     @GetMapping("/compensation-tab")
     DefaultResponse<TabsResponse> findCompTabByCode(@RequestHeader("Authorization") String token,
                                                     @RequestParam String code);
-    @GetMapping("/compensation-tab/simplified-search")
-    DefaultResponse<List<TabsResponse>> simplifiedSearchTabs(@RequestHeader("Authorization") String token,
-                                                            @RequestParam String search);
     @PostMapping("/compensation-tab")
     void createTab(@RequestHeader("Authorization") String token,
-                                            @RequestBody TabsRequest tabsRequest);
-
-
-
-    @GetMapping("/work-period")
-    DefaultResponse<WorkPeriodResponse> findWorkPeriodByNameAndWorkPeriodType(@RequestHeader("Authorization") String token,
-                                                                              @RequestParam String name,
-                                                                              @RequestParam String workPeriodType);
-    @PostMapping("/work-period")
-    DefaultResponse<WorkPeriodResponse> createWorkPeriods(@RequestHeader("Authorization") String token,
-                                                          @RequestBody WorkPeriodRequest workPeriodRequest);
-    @PostMapping("/work-period/{workPeriodId}/work-period-assignments")
-    void createWorkPeriodAssignments(@RequestHeader("Authorization") String token,
-                                     @RequestBody WorkPeriodAssignRequest workPeriodAssignRequest,
-                                     @PathVariable Long workPeriodId);
-    @GetMapping("/work-period-max-daily-durations")
-    DefaultResponse<List<WorkPeriodMaxDailyDurationsResponse>> findAllWorkPeriodsMaxDailyDurations(@RequestHeader("Authorization") String token);
-    @GetMapping("/work-period-max-durations")
-    DefaultResponse<List<WorkPeriodMaxDurationsResponse>> findAllWorkPeriodsMaxDurations(@RequestHeader("Authorization") String token);
-    @GetMapping("/work-period-types")
-    DefaultResponse<List<WorkPeriodTypeResponse>> findAllWorkPeriodTypes(@RequestHeader("Authorization") String token);
-    @GetMapping("/work-turn-types")
-    DefaultResponse<List<WorkTurnTypesResponse>> findAllWorkTurnTypes(@RequestHeader("Authorization") String token);
+                   @RequestBody TabsRequest tabsRequest);
 
 
 
     @GetMapping("/work-position-category")
     DefaultResponse<WorkPositionCategoryResponse> findWorkPosCategoryByCode(@RequestHeader("Authorization") String token,
                                                                             @RequestParam String code);
-    @GetMapping("/work-position-category/simplified-search")
-    DefaultResponse<List<WorkPositionCategoryResponse>> simplifiedSearchWorkPositionCategory(@RequestHeader("Authorization") String token,
-                                                                                             @RequestParam String search);
     @PostMapping("/work-position-category")
     void createWorkPositionCategory(@RequestHeader("Authorization") String token,
                                                                              @RequestBody WorkPositionCategoryRequest workPositionCategoryRequest);
