@@ -10,9 +10,6 @@ spring:
   profiles:
     active: dev
 
-email: ${EMAIL}
-password: ${PASSWORD}
-
 logging:
   file:
     name: /var/www/html/migration/migration.log

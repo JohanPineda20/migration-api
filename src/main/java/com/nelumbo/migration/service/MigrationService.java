@@ -6,6 +6,7 @@ import com.nelumbo.migration.feign.*;
 import com.nelumbo.migration.feign.dto.*;
 import com.nelumbo.migration.feign.dto.requests.*;
 import com.nelumbo.migration.feign.dto.responses.*;
+import com.nelumbo.migration.feign.dto.responses.error.ErrorDetailResponse;
 import com.nelumbo.migration.feign.dto.responses.error.ErrorResponse;
 
 import lombok.RequiredArgsConstructor;
@@ -35,21 +36,14 @@ public class MigrationService {
 
     private static final String ACTIVO_STATUS = "ACTIVO";
     private static final String INACTIVO_STATUS = "INACTIVO";
-    private static final String BEARER = "Bearer ";
     private static final String MODIFIED = "modified_";
     private static final String SHEET = "Estamos con la hoja: ";
     private static final String COUNTROWS = "La cantidad de filas es: ";
-    @Value("${email}")
-    private String email;
-    @Value("${password}")
-    private String password;
 
-    private final LoginFeign loginFeign;
     private final MigrationFeign migrationFeign;
 
-    public void migrateEmpresa(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateEmpresa(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("empresa");
@@ -66,8 +60,11 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
                     Cell cellName = row.getCell(0);
+                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombre es requerido");
+                    }
                     orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    fieldValues.forEach((name, position) ->{
+                    fieldValues.forEach((name, position) -> {
                         Cell cell = row.getCell(position);
                         if (cell != null) {
                             orgEntityDetailRequest.getFieldValues().put(name, cell.getStringCellValue());
@@ -76,23 +73,38 @@ public class MigrationService {
 
                     migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 1L);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet empresa: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet empresa: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateRegion(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateRegion(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("regiones");
@@ -109,8 +121,14 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
                     Cell cellName = row.getCell(0);
+                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombre es requerido");
+                    }
                     orgEntityDetailRequest.setName(cellName.getStringCellValue());
                     Cell cellEmpresa = row.getCell(1);
+                    if(cellEmpresa == null || cellEmpresa.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Empresa es requerida");
+                    }
                     orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa.getStringCellValue()).getData().getId());
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
@@ -121,22 +139,37 @@ public class MigrationService {
 
                     migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 2L);
                 } catch (ErrorResponseException e) {
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
                     log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
                     log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateDivision(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateDivision(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("divisiones");
@@ -153,8 +186,14 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
                     Cell cellName = row.getCell(0);
+                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombre es requerido");
+                    }
                     orgEntityDetailRequest.setName(cellName.getStringCellValue());
                     Cell cellRegion = row.getCell(1);
+                    if(cellRegion == null || cellRegion.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Region es requerido");
+                    }
                     orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 2L, cellRegion.getStringCellValue()).getData().getId());
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
@@ -165,22 +204,37 @@ public class MigrationService {
 
                     migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 3L);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet divisiones: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet divisiones: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateZona(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateZona(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("zonas");
@@ -197,8 +251,14 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
                     Cell cellName = row.getCell(0);
+                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombre es requerido");
+                    }
                     orgEntityDetailRequest.setName(cellName.getStringCellValue());
                     Cell cellDivision = row.getCell(1);
+                    if(cellDivision == null || cellDivision.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Division es requerido");
+                    }
                     orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 3L, cellDivision.getStringCellValue()).getData().getId());
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
@@ -209,22 +269,37 @@ public class MigrationService {
 
                     migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 4L);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet zonas: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet zonas: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateArea(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateArea(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("áreas");
@@ -241,6 +316,9 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
                     Cell cellName = row.getCell(0);
+                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombre es requerido");
+                    }
                     orgEntityDetailRequest.setName(cellName.getStringCellValue());
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
@@ -251,23 +329,38 @@ public class MigrationService {
 
                     migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 5L);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet áreas: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet áreas: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateSubarea(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateSubarea(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("subareas");
@@ -284,8 +377,14 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
                     Cell cellName = row.getCell(0);
+                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombre es requerido");
+                    }
                     orgEntityDetailRequest.setName(cellName.getStringCellValue());
                     Cell cellArea = row.getCell(1);
+                    if(cellArea == null || cellArea.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Area es requerida");
+                    }
                     orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea.getStringCellValue()).getData().getId());
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
@@ -296,23 +395,38 @@ public class MigrationService {
 
                     migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 6L);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet subareas: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet subareas: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateDepartamento(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateDepartamento(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("departamentos");
@@ -329,8 +443,14 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
                     Cell cellName = row.getCell(0);
+                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombre es requerido");
+                    }
                     orgEntityDetailRequest.setName(cellName.getStringCellValue());
                     Cell cellSubarea = row.getCell(1);
+                    if(cellSubarea == null || cellSubarea.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Subarea es requerida");
+                    }
                     orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 6L, cellSubarea.getStringCellValue()).getData().getId());
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
@@ -341,23 +461,38 @@ public class MigrationService {
 
                     migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 7L);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet departamentos: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet departamentos: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateCostCenters(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateCostCenters(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("ceco");
@@ -374,21 +509,41 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     CostCenterRequest costCenterRequest = new CostCenterRequest();
                     Cell cellCode = row.getCell(0);
+                    if(cellCode == null || cellCode.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Codigo es requerido");
+                    }
                     costCenterRequest.setCode(cellCode.getStringCellValue());
-                    costCenterRequest.setDenomination(row.getCell(1).getStringCellValue());
+                    Cell cellDenomination = row.getCell(1);
+                    if(cellDenomination == null || cellDenomination.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Denominacion es requerida");
+                    }
+                    costCenterRequest.setDenomination(cellDenomination.getStringCellValue());
+
+                    Cell cellCountry = row.getCell(2);
+                    if(cellCountry == null || cellCountry.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Pais es requerido");
+                    }
+                    Cell cellState = row.getCell(3);
+                    if(cellState == null || cellState.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Estado es requerido");
+                    }
+                    Cell cellCity = row.getCell(4);
+                    if(cellCity == null || cellCity.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Municipio es requerido");
+                    }
 
                     DefaultResponse<List<CountryResponse>> countryResponse = migrationFeign.findAll(bearerToken);
                     Long countryId = countryResponse.getData().stream()
-                            .filter(country -> country.getName().equalsIgnoreCase(row.getCell(2).getStringCellValue()))
-                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(2).getStringCellValue().concat(" not found"))));
+                            .filter(country -> country.getName().equalsIgnoreCase(cellCountry.getStringCellValue()))
+                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("Pais ".concat(cellCountry.getStringCellValue().concat(" no encontrado"))));
                     DefaultResponse<List<CountryResponse>> stateResponse = migrationFeign.findAllStatesByCountryId(bearerToken,countryId);
                     Long stateId = stateResponse.getData().stream()
-                            .filter(state -> state.getName().equalsIgnoreCase(row.getCell(3).getStringCellValue()))
-                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(3).getStringCellValue().concat(" not found"))));
+                            .filter(state -> state.getName().equalsIgnoreCase(cellState.getStringCellValue()))
+                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("Estado ".concat(cellState.getStringCellValue().concat(" no encontrado"))));
                     DefaultResponse<List<CountryResponse>> cityResponse = migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId);
                     Long cityId = cityResponse.getData().stream()
-                            .filter(city -> city.getName().equalsIgnoreCase(row.getCell(4).getStringCellValue()))
-                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(4).getStringCellValue().concat(" not found"))));
+                            .filter(city -> city.getName().equalsIgnoreCase(cellCity.getStringCellValue()))
+                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("Municipio ".concat(cellCity.getStringCellValue().concat(" no encontrado"))));
 
                     costCenterRequest.setCountryId(countryId);
                     costCenterRequest.setStateId(stateId);
@@ -405,23 +560,38 @@ public class MigrationService {
 
                     migrationFeign.createCostCenter(bearerToken, costCenterRequest);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet centro de costos: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet centro de costos: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateCostCentersOrgEntitiesGeographic(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateCostCentersOrgEntitiesGeographic(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("ceco_estructura_geografica");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
@@ -429,8 +599,11 @@ public class MigrationService {
             for (int i = 1; i < numberOfRows; i++) {
                 try {
                     Row row = sheet.getRow(i);
-
-                    Long costCenterId = migrationFeign.findCostCenterByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+                    Cell cellCode = row.getCell(0);
+                    if(cellCode == null || cellCode.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Codigo del Centro de Costos es requerido");
+                    }
+                    Long costCenterId = migrationFeign.findCostCenterByCode(bearerToken, cellCode.getStringCellValue()).getData().getId();
 
                     CostCenterDetailRequest costCenterDetailRequest = new CostCenterDetailRequest();
                     List<Long> orgEntityDetailIds = costCenterDetailRequest.getOrgEntityDetailIds();
@@ -445,7 +618,7 @@ public class MigrationService {
 
                     Cell cellEmpresa = row.getCell(1);
                     if(cellEmpresa == null || cellEmpresa.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Invalid geographic structure: missing empresa");
+                        throw new RuntimeException("Empresa es requerida");
                     }
                     Long empresaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa.getStringCellValue()).getData().getId();
                     orgEntityDetailIds.add(empresaId);
@@ -457,7 +630,7 @@ public class MigrationService {
 
                         if (cellDivision != null && !cellDivision.getStringCellValue().isEmpty()) {
                             if (regionId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing region");
+                                throw new RuntimeException("Region es requerido");
                             }
                             divisionId = getEntityId(bearerToken, cellDivision, 3L, regionId, "division");
                             orgEntityDetailIds.add(divisionId);
@@ -465,10 +638,10 @@ public class MigrationService {
 
                         if (cellZona != null && !cellZona.getStringCellValue().isEmpty()) {
                             if (regionId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing region and division");
+                                throw new RuntimeException("Region y Division son requeridos");
                             }
                             if (divisionId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing division");
+                                throw new RuntimeException("Division es requerido");
                             }
                             zonaId = getEntityId(bearerToken, cellZona, 4L, divisionId, "zona");
                             orgEntityDetailIds.add(zonaId);
@@ -476,23 +649,38 @@ public class MigrationService {
                     }
                     migrationFeign.createCostCenterDetails(bearerToken, costCenterDetailRequest, costCenterId);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_geografica: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_geografica: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateCostCentersOrgEntitiesOrganizative(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateCostCentersOrgEntitiesOrganizative(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("ceco_estructura_organizativa");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
@@ -514,7 +702,7 @@ public class MigrationService {
                     Long departamentoId = null;
 
                     if(cellArea == null || cellArea.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Invalid geographic structure: missing area");
+                        throw new RuntimeException("Area es requerida");
                     }
                     Long areaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea.getStringCellValue()).getData().getId();
                     orgEntityDetailIds.add(areaId);
@@ -526,7 +714,7 @@ public class MigrationService {
 
                         if (cellDepartamento != null && !cellDepartamento.getStringCellValue().isEmpty()) {
                             if (subAreaId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing subarea");
+                                throw new RuntimeException("Subarea es requerida");
                             }
                             departamentoId = getEntityId(bearerToken, cellDepartamento, 7L, subAreaId, "departamento");
                             orgEntityDetailIds.add(departamentoId);
@@ -534,23 +722,38 @@ public class MigrationService {
                     }
                     migrationFeign.createCostCenterDetails(bearerToken, costCenterDetailRequest, costCenterId);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_organizativa: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_organizativa: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateStores(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateStores(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("sucursales");
@@ -561,30 +764,50 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     StoreRequest storeRequest = new StoreRequest();
                     Cell code = row.getCell(0);
+                    if(code == null || code.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Centro es requerido");
+                    }
                     storeRequest.setCode(code.getStringCellValue());
-                    storeRequest.setDenomination(row.getCell(1).getStringCellValue());
+                    Cell denomination = row.getCell(1);
+                    if(denomination == null || denomination.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Denominacion es requerido");
+                    }
+                    storeRequest.setDenomination(denomination.getStringCellValue());
+
+                    Cell cellCountry = row.getCell(2);
+                    if(cellCountry == null || cellCountry.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Pais es requerido");
+                    }
+                    Cell cellState = row.getCell(3);
+                    if(cellState == null || cellState.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Estado es requerido");
+                    }
+                    Cell cellCity = row.getCell(4);
+                    if(cellCity == null || cellCity.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Municipio es requerido");
+                    }
 
                     DefaultResponse<List<CountryResponse>> countryResponse = migrationFeign.findAll(bearerToken);
                     Long countryId = countryResponse.getData().stream()
-                            .filter(country -> country.getName().equalsIgnoreCase(row.getCell(2).getStringCellValue()))
-                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(2).getStringCellValue().concat(" not found"))));
+                            .filter(country -> country.getName().equalsIgnoreCase(cellCountry.getStringCellValue()))
+                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("country ".concat(cellCountry.getStringCellValue().concat(" not found"))));
                     DefaultResponse<List<CountryResponse>> stateResponse = migrationFeign.findAllStatesByCountryId(bearerToken, countryId);
                     Long stateId = stateResponse.getData().stream()
-                            .filter(state -> state.getName().equalsIgnoreCase(row.getCell(3).getStringCellValue()))
-                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(3).getStringCellValue().concat(" not found"))));
+                            .filter(state -> state.getName().equalsIgnoreCase(cellState.getStringCellValue()))
+                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("state ".concat(cellState.getStringCellValue().concat(" not found"))));
                     DefaultResponse<List<CountryResponse>> cityResponse = migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId);
                     Long cityId = cityResponse.getData().stream()
-                            .filter(city -> city.getName().equalsIgnoreCase(row.getCell(4).getStringCellValue()))
-                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(4).getStringCellValue().concat(" not found"))));
+                            .filter(city -> city.getName().equalsIgnoreCase(cellCity.getStringCellValue()))
+                            .findFirst().map(CountryResponse::getId).orElseThrow(() -> new RuntimeException("city ".concat(cellCity.getStringCellValue().concat(" not found"))));
 
                     storeRequest.setCountryId(countryId);
                     storeRequest.setStateId(stateId);
                     storeRequest.setCityId(cityId);
                     storeRequest.setAddress(row.getCell(5) == null || row.getCell(5).getStringCellValue().isEmpty() ? "-" : row.getCell(5).getStringCellValue());
-                    storeRequest.setZipcode("" + (int) row.getCell(6).getNumericCellValue());
-                    storeRequest.setLatitude(row.getCell(7).getNumericCellValue());
-                    storeRequest.setLongitude(row.getCell(8).getNumericCellValue());
-                    storeRequest.setGeorefDistance((long) row.getCell(9).getNumericCellValue());
+                    storeRequest.setZipcode(row.getCell(6) != null ? String.valueOf((int) row.getCell(6).getNumericCellValue()) : "00000");
+                    storeRequest.setLatitude(row.getCell(7) != null ? row.getCell(7).getNumericCellValue() : 0.0);
+                    storeRequest.setLongitude(row.getCell(8) != null ? row.getCell(8).getNumericCellValue() : 0.0);
+                    storeRequest.setGeorefDistance(row.getCell(9) != null ? (long) row.getCell(9).getNumericCellValue() : 0L);
                     String costCenter = row.getCell(10) != null && !row.getCell(10).getStringCellValue().isEmpty()  ? row.getCell(10).getStringCellValue() : null;
                     Long costCenterId = null;
                     if(costCenter != null) {
@@ -596,24 +819,38 @@ public class MigrationService {
                     storeRequest.setStatusId(statusId);
                     migrationFeign.createStore(bearerToken, storeRequest);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
-
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateStoresOrgEntitiesGeographic(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateStoresOrgEntitiesGeographic(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("sucursales");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
@@ -622,7 +859,11 @@ public class MigrationService {
                 try {
                     Row row = sheet.getRow(i);
 
-                    Long storeId = migrationFeign.findStoreByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+                    Cell code = row.getCell(0);
+                    if(code == null || code.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Centro es requerido");
+                    }
+                    Long storeId = migrationFeign.findStoreByCode(bearerToken, code.getStringCellValue()).getData().getId();
 
                     StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
                     List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
@@ -631,14 +872,13 @@ public class MigrationService {
                     Long divisionId = null;
                     Long zonaId = null;
 
-
+                    Cell cellEmpresa = row.getCell(12);
                     Cell cellRegion = row.getCell(13);
                     Cell cellDivision = row.getCell(14);
                     Cell cellZona = row.getCell(15);
 
-                    Cell cellEmpresa = row.getCell(12);
                     if(cellEmpresa == null || cellEmpresa.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Invalid geographic structure: missing empresa");
+                        throw new RuntimeException("Empresa es requerida");
                     }
                     Long empresaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa.getStringCellValue()).getData().getId();
                     orgEntityDetailIds.add(empresaId);
@@ -650,7 +890,7 @@ public class MigrationService {
 
                         if (cellDivision != null && !cellDivision.getStringCellValue().isEmpty()) {
                             if (regionId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing region");
+                                throw new RuntimeException("Region es requerido");
                             }
                             divisionId = getEntityId(bearerToken, cellDivision, 3L, regionId, "division");
                             orgEntityDetailIds.add(divisionId);
@@ -658,10 +898,10 @@ public class MigrationService {
 
                         if (cellZona != null && !cellZona.getStringCellValue().isEmpty()) {
                             if (regionId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing region and division");
+                                throw new RuntimeException("Region y Division son requeridos");
                             }
                             if (divisionId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing division");
+                                throw new RuntimeException("Division es requerido");
                             }
                             zonaId = getEntityId(bearerToken, cellZona, 4L, divisionId, "zona");
                             orgEntityDetailIds.add(zonaId);
@@ -669,22 +909,37 @@ public class MigrationService {
                     }
                     migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateStoresOrgEntitiesOrganizative(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateStoresOrgEntitiesOrganizative(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("sucursal_estructura_organizativ");
             int numberOfRows = sheet.getPhysicalNumberOfRows();
@@ -692,8 +947,11 @@ public class MigrationService {
             for (int i = 1; i < numberOfRows; i++) {
                 try {
                     Row row = sheet.getRow(i);
-
-                    Long storeId = migrationFeign.findStoreByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getId();
+                    Cell code = row.getCell(0);
+                    if(code == null || code.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Centro de Sucursal es requerido");
+                    }
+                    Long storeId = migrationFeign.findStoreByCode(bearerToken, code.getStringCellValue()).getData().getId();
 
                     StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
                     List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
@@ -706,7 +964,7 @@ public class MigrationService {
                     Long departamentoId = null;
 
                     if(cellArea == null || cellArea.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Invalid geographic structure: missing area");
+                        throw new RuntimeException("Area es requerida");
                     }
                     Long areaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea.getStringCellValue()).getData().getId();
                     orgEntityDetailIds.add(areaId);
@@ -718,7 +976,7 @@ public class MigrationService {
 
                         if (cellDepartamento != null && !cellDepartamento.getStringCellValue().isEmpty()) {
                             if (subAreaId == null) {
-                                throw new RuntimeException("Invalid geographic structure: missing subarea");
+                                throw new RuntimeException("Subarea es requerida");
                             }
                             departamentoId = getEntityId(bearerToken, cellDepartamento, 7L, subAreaId, "departamento");
                             orgEntityDetailIds.add(departamentoId);
@@ -726,18 +984,34 @@ public class MigrationService {
                     }
                     migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
     private long getStatusId(Cell cellStatus) {
@@ -747,7 +1021,7 @@ public class MigrationService {
             statusId = switch (statusValue) {
                 case ACTIVO_STATUS -> 1L;
                 case INACTIVO_STATUS -> 2L;
-                default -> throw new RuntimeException("Invalid status: " + statusValue);
+                default -> throw new RuntimeException("Estatus invalido: " + statusValue);
             };
         }
         return statusId;
@@ -764,12 +1038,11 @@ public class MigrationService {
                 .filter(entity -> entity.getName().equalsIgnoreCase(name))
                 .findFirst()
                 .map(OrgEntityResponse::getId)
-                .orElseThrow(() -> new RuntimeException(entityName.concat(" ").concat(cell.getStringCellValue()).concat(" not found")));
+                .orElseThrow(() -> new RuntimeException(entityName.concat(" ").concat(cell.getStringCellValue()).concat(" no encontrado")));
     }
 
-    public void migrateWorkPositions(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateWorkPositions(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("cargo");
@@ -787,14 +1060,33 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     WorkPositionRequest workPositionRequest = new WorkPositionRequest();
                     Cell code = row.getCell(0);
+                    if(code == null || code.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Codigo es requerido");
+                    }
                     workPositionRequest.setCode(code.getStringCellValue());
-                    workPositionRequest.setDenomination(row.getCell(1).getStringCellValue());
-                    workPositionRequest.setAuthorizedStaff((long)row.getCell(2).getNumericCellValue());
+                    Cell denomination = row.getCell(1);
+                    if(denomination == null || denomination.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Denominacion es requerido");
+                    }
+                    workPositionRequest.setDenomination(denomination.getStringCellValue());
+                    Cell authorizedStaff = row.getCell(2);
+                    if(authorizedStaff == null || authorizedStaff.getNumericCellValue() == 0){
+                        throw new RuntimeException("Plantilla autorizada es requerido");
+                    }
+                    workPositionRequest.setAuthorizedStaff((long)authorizedStaff.getNumericCellValue());
 
-                    Long workPosCatId = migrationFeign.findWorkPosCategoryByCode(bearerToken, row.getCell(3).getStringCellValue()).getData().getId();
+                    Cell cellWorkPosCat = row.getCell(3);
+                    if(cellWorkPosCat == null || cellWorkPosCat.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Puesto es requerido");
+                    }
+                    Long workPosCatId = migrationFeign.findWorkPosCategoryByCode(bearerToken, cellWorkPosCat.getStringCellValue()).getData().getId();
                     workPositionRequest.setWorkPosCatId(workPosCatId);
 
-                    Long storeId = migrationFeign.findStoreByCode(bearerToken, row.getCell(4).getStringCellValue()).getData().getId();
+                    Cell cellStore = row.getCell(4);
+                    if(cellStore == null || cellStore.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Sucursal es requerida");
+                    }
+                    Long storeId = migrationFeign.findStoreByCode(bearerToken, cellStore.getStringCellValue()).getData().getId();
                     workPositionRequest.setStoreId(storeId);
 
                     String costCenter = row.getCell(5) != null && !row.getCell(5).getStringCellValue().isEmpty() ? row.getCell(5).getStringCellValue() : null;
@@ -812,7 +1104,7 @@ public class MigrationService {
                     Cell cellDepartamento = row.getCell(9);
                     Long storeOrganizativeId = null;
 
-                    if(cellArea == null || cellArea.getStringCellValue().isEmpty()) throw new RuntimeException("Area is required");
+                    if(cellArea == null || cellArea.getStringCellValue().isEmpty()) throw new RuntimeException("Area es requerida");
 
                     DefaultResponse<StoreDetailResponse> storeDetailResponse = migrationFeign.findAllStoresDetails(bearerToken, storeId);
                     //Obtener las estructuras organizativas de la sucursal cuya area sea igual a cellArea
@@ -822,7 +1114,7 @@ public class MigrationService {
                             .filter(detail -> detail.getStructures().stream().anyMatch(structure -> area.equalsIgnoreCase(structure.getName()) && structure.getOrgEntity().getId() == 5L))
                             .toList();
                     //Si la lista es vacia es porque ninguna de las estructuras organizativas de la sucursal tiene esa area
-                    if (areasFiltradas.isEmpty()) throw new RuntimeException("Area ".concat(cellArea.getStringCellValue()).concat(" not found. It must match the structure of the store."));
+                    if (areasFiltradas.isEmpty()) throw new RuntimeException("Area ".concat(cellArea.getStringCellValue()).concat(" no encontrada. Debe coincidir con la estructura de la sucursal."));
 
                     if (cellSubarea != null && !cellSubarea.getStringCellValue().isEmpty()) {
                         //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas tienen el subarea
@@ -831,7 +1123,7 @@ public class MigrationService {
                                 .filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() != null && !structure.getChildren().isEmpty() && structure.getChildren().get(0) != null && structure.getChildren().stream().anyMatch(child -> subArea.equalsIgnoreCase(child.getName()) && child.getOrgEntity().getId() == 6L)))
                                 .toList();
                         //Si la lista es vacia es porque ninguna de las estructuras organizativas de la sucursal tiene esa subarea
-                        if (areasFiltradasConSubarea.isEmpty()) throw new RuntimeException("Subarea ".concat(cellSubarea.getStringCellValue()).concat(" not found. It must match the structure of the store."));
+                        if (areasFiltradasConSubarea.isEmpty()) throw new RuntimeException("Subarea ".concat(cellSubarea.getStringCellValue()).concat(" no encontrada. Debe coincidir con la estructura de la sucursal."));
 
                         if (cellDepartamento != null && !cellDepartamento.getStringCellValue().isEmpty()) {
                             //Una vez encontradas las estructuras organizativas que tienen ese area-subarea, buscar cual de ellas tienen el departamento
@@ -848,19 +1140,19 @@ public class MigrationService {
                             Optional<OrgEntDetailResponse> areaConSubareaSinDepartamento = areasFiltradasConSubarea.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren().stream().anyMatch(child -> child.getChildren() == null || child.getChildren().isEmpty() || child.getChildren().get(0) == null)))
                                     .findFirst();
                             //Si el optional es vacio es porque todas las area-subarea tienen un departamento y se necesita que en el excel se envíe el departamento para buscarlo
-                            if(areaConSubareaSinDepartamento.isEmpty()) throw new RuntimeException("A Departamento is required");
+                            if(areaConSubareaSinDepartamento.isEmpty()) throw new RuntimeException("Departamento es requerido");
                             storeOrganizativeId = areaConSubareaSinDepartamento.get().getId();
                         }
                     }
                     else  {
                         //Si el excel tiene un departamento y no tiene un subarea, entonces está mal la estructura, falta el subarea
-                        if(cellDepartamento != null && !cellDepartamento.getStringCellValue().isEmpty()) throw new RuntimeException("A Subarea is required");
+                        if(cellDepartamento != null && !cellDepartamento.getStringCellValue().isEmpty()) throw new RuntimeException("Subarea es requerida");
 
                         //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas no tiene subarea
                         Optional<OrgEntDetailResponse> areaSinSubarea = areasFiltradas.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() == null || structure.getChildren().isEmpty() || structure.getChildren().get(0) == null))
                                 .findFirst();
                         //Si el optional es vacio es porque todas las areas tienen un subarea y se necesita que en el excel se envíe el subarea para buscarlo
-                        if(areaSinSubarea.isEmpty()) throw new RuntimeException("A Subarea is required");
+                        if(areaSinSubarea.isEmpty()) throw new RuntimeException("Subarea es requerida");
                         storeOrganizativeId = areaSinSubarea.get().getId();
                     }
                     workPositionRequest.setStoreOrganizativeId(storeOrganizativeId);
@@ -897,23 +1189,37 @@ public class MigrationService {
 
                     migrationFeign.createWorkPosition(bearerToken, workPositionRequest);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
-
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateWorkPositionsDetails(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateWorkPositionsDetails(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("cargo");
@@ -922,8 +1228,11 @@ public class MigrationService {
             for (int i = 1; i < numberOfRows; i++) {
                 try {
                     Row row = sheet.getRow(i);
-
-                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, row.getCell(0).getStringCellValue()).getData().getWorkPosition().getId();
+                    Cell code = row.getCell(0);
+                    if(code == null || code.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Codigo es requerido");
+                    }
+                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, code.getStringCellValue()).getData().getWorkPosition().getId();
                     String compCategory = row.getCell(10) != null && !row.getCell(10).getStringCellValue().isEmpty() ? row.getCell(10).getStringCellValue() : null;
                     Long compCategoryId = null;
                     if(compCategory != null){
@@ -953,23 +1262,37 @@ public class MigrationService {
                         migrationFeign.updateWorkPosition(bearerToken, wPUReq, workPositionId);
                     }
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
-
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateProfiles(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateProfiles(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("empleados");
@@ -980,63 +1303,97 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     ProfileRequest profileRequest = new ProfileRequest();
                     List<ProfileSecValueRequest> profileSecValueRequestList = new ArrayList<>();
-                    Cell clave = row.getCell(0);
                     ProfileSecValueRequest informacionPersonal = new ProfileSecValueRequest();
                     informacionPersonal.setKeyword("PSPI01");
                     Map<String, Object> informacionPersonalValues = informacionPersonal.getFieldsValues();
-                    informacionPersonalValues.put("Primer Nombre", row.getCell(1).getStringCellValue());
-                    informacionPersonalValues.put("Primer Apellido", row.getCell(2).getStringCellValue());
+                    Cell clave = row.getCell(0);
+                    if (clave == null || clave.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Clave MPRO es requerido");
+                    }
+                    informacionPersonalValues.put("Clave MPRO", clave.getStringCellValue());
+                    Cell names = row.getCell(1);
+                    if (names == null || names.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Nombres es requerido");
+                    }
+                    informacionPersonalValues.put("Primer Nombre", names.getStringCellValue());
+                    Cell lastName = row.getCell(2);
+                    if (lastName == null || lastName.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Primer apellido es requerido");
+                    }
+                    informacionPersonalValues.put("Primer Apellido", lastName.getStringCellValue());
                     informacionPersonalValues.put("Segundo Apellido", row.getCell(3) != null ? row.getCell(3).getStringCellValue() : "");
-                    informacionPersonalValues.put("Sexo", row.getCell(4).getStringCellValue());
+                    Cell gender = row.getCell(4);
+                    if (gender == null || gender.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Sexo es requerido");
+                    }
+                    informacionPersonalValues.put("Sexo", gender.getStringCellValue());
                     DateTimeFormatter formatters = DateTimeFormatter.ofPattern("dd/MM/yyyy");
                     //LocalDate.parse(row.getCell(9).getStringCellValue(), formatters);
                     // row.getCell(9).getStringCellValue()
-                    LocalDate hiredDate =  row.getCell(9).getDateCellValue().toInstant()
-                            .atZone(ZoneId.systemDefault())
-                            .toLocalDate();
-                    informacionPersonalValues.put("Fecha de contratación", hiredDate.format(formatters));
-                    informacionPersonalValues.put("Clave MPRO", clave != null ? clave.getStringCellValue() : "");
-
+                    if (row.getCell(9) != null) {
+                        LocalDate hiredDate = row.getCell(9).getDateCellValue().toInstant()
+                                .atZone(ZoneId.systemDefault())
+                                .toLocalDate();
+                        informacionPersonalValues.put("Fecha de contratación", hiredDate.format(formatters));
+                    }
                     ProfileSecValueRequest informacionBiografica = new ProfileSecValueRequest();
                     informacionBiografica.setKeyword("PSBI02");
                     Map<String, Object> informacionBiograficaValues = informacionBiografica.getFieldsValues();
                     //LocalDate.parse(row.getCell(8).getStringCellValue(), formatters);
                     //row.getCell(8).getStringCellValue()
-                    LocalDate birthDate =  row.getCell(8).getDateCellValue().toInstant()
-                            .atZone(ZoneId.systemDefault())
-                            .toLocalDate();
-                    informacionBiograficaValues.put("Fecha de nacimiento", birthDate.format(formatters));
+                    if (row.getCell(8) != null) {
+                        LocalDate birthDate =  row.getCell(8).getDateCellValue().toInstant()
+                                .atZone(ZoneId.systemDefault())
+                                .toLocalDate();
+                        informacionBiograficaValues.put("Fecha de nacimiento", birthDate.format(formatters));
+                    }
 
                     ProfileSecValueRequest datosPersonales = new ProfileSecValueRequest();
                     datosPersonales.setKeyword("PSPD03");
                     Map<String, Object> datosPersonalesValues = datosPersonales.getFieldsValues();
-                    datosPersonalesValues.put("RFC", row.getCell(5).getStringCellValue());
-                    datosPersonalesValues.put("CURP", row.getCell(6).getStringCellValue());
-                    datosPersonalesValues.put("NSS", row.getCell(7).getStringCellValue());
+                    datosPersonalesValues.put("RFC", row.getCell(5) != null ? row.getCell(5).getStringCellValue() : "");
+                    datosPersonalesValues.put("CURP", row.getCell(6) != null ? row.getCell(6).getStringCellValue(): "");
+                    datosPersonalesValues.put("NSS", row.getCell(7) != null ? row.getCell(7).getStringCellValue(): "");
 
                     ProfileSecValueRequest direccion = new ProfileSecValueRequest();
                     direccion.setKeyword("PSAS05");
                     Map<String, Object> direccionValues = direccion.getFieldsValues();
-                    direccionValues.put("Dirección", row.getCell(12).getStringCellValue());
+                    direccionValues.put("Dirección", row.getCell(12) != null ? row.getCell(12).getStringCellValue(): "");
+                    Cell cellCountry = row.getCell(13);
+                    if (cellCountry == null || cellCountry.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Pais es requerido");
+                    }
+                    Cell cellState = row.getCell(14);
+                    if (cellState == null || cellState.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Estado es requerido");
+                    }
+                    Cell cellCity = row.getCell(15);
+                    if (cellCity == null || cellCity.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Municipio es requerido");
+                    }
                     DefaultResponse<List<CountryResponse>> countryResponse = migrationFeign.findAll(bearerToken);
                     CountryResponse paisResidencia = countryResponse.getData().stream()
-                            .filter(country -> country.getName().equalsIgnoreCase(row.getCell(13).getStringCellValue()))
-                            .findFirst().orElseThrow(() -> new RuntimeException("country ".concat(row.getCell(13).getStringCellValue().concat(" not found"))));
+                            .filter(country -> country.getName().equalsIgnoreCase(cellCountry.getStringCellValue()))
+                            .findFirst().orElseThrow(() -> new RuntimeException("country ".concat(cellCountry.getStringCellValue().concat(" not found"))));
                     DefaultResponse<List<CountryResponse>> stateResponse = migrationFeign.findAllStatesByCountryId(bearerToken, paisResidencia.getId());
                     CountryResponse estadoResidencia = stateResponse.getData().stream()
-                            .filter(state -> state.getName().equalsIgnoreCase(row.getCell(14).getStringCellValue()))
-                            .findFirst().orElseThrow(() -> new RuntimeException("state ".concat(row.getCell(14).getStringCellValue().concat(" not found"))));
+                            .filter(state -> state.getName().equalsIgnoreCase(cellState.getStringCellValue()))
+                            .findFirst().orElseThrow(() -> new RuntimeException("state ".concat(cellState.getStringCellValue().concat(" not found"))));
                     DefaultResponse<List<CountryResponse>> cityResponse = migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, paisResidencia.getId(), estadoResidencia.getId());
                     CountryResponse ciudadResidencia = cityResponse.getData().stream()
-                            .filter(city -> city.getName().equalsIgnoreCase(row.getCell(15).getStringCellValue()))
-                            .findFirst().orElseThrow(() -> new RuntimeException("city ".concat(row.getCell(15).getStringCellValue().concat(" not found"))));
+                            .filter(city -> city.getName().equalsIgnoreCase(cellCity.getStringCellValue()))
+                            .findFirst().orElseThrow(() -> new RuntimeException("city ".concat(cellCity.getStringCellValue().concat(" not found"))));
                     direccionValues.put("Lugar de Residencia", Arrays.asList(paisResidencia, estadoResidencia, ciudadResidencia));
 
                     ProfileSecValueRequest contacto = new ProfileSecValueRequest();
                     contacto.setKeyword("PSCI06");
                     Map<String, Object> contactoValues = contacto.getFieldsValues();
-                    contactoValues.put("Email Personal", row.getCell(10).getStringCellValue());
-                    contactoValues.put("Celular personal", (row.getCell(11) == null) ? "" : row.getCell(11).getStringCellValue());
+                    Cell cellEmail = row.getCell(10);
+                    if (cellEmail == null || cellEmail.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Email Personal es requerido");
+                    }
+                    contactoValues.put("Email Personal", cellEmail.getStringCellValue());
+                    contactoValues.put("Celular personal", row.getCell(11) == null ? "" : row.getCell(11).getStringCellValue());
 
                     profileSecValueRequestList.add(informacionPersonal);
                     profileSecValueRequestList.add(informacionBiografica);
@@ -1045,30 +1402,47 @@ public class MigrationService {
                     profileSecValueRequestList.add(contacto);
 
                     profileRequest.setSectionValues(profileSecValueRequestList);
-
-                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, row.getCell(16).getStringCellValue()).getData().getWorkPosition().getId();
+                    Cell cellWorkPosition = row.getCell(16);
+                    if (cellWorkPosition == null || cellWorkPosition.getStringCellValue().isEmpty()) {
+                        throw new RuntimeException("Cargo es requerido");
+                    }
+                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, cellWorkPosition.getStringCellValue()).getData().getWorkPosition().getId();
 
                     profileRequest.setWorkPositionId(workPositionId);
                     migrationFeign.createProfile(bearerToken, profileRequest);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getError().getErrors().getFields());
-                    
-                    if(e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
-
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
 
-    public void migrateProfilesGroups(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateProfilesGroups(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("empleados");
@@ -1099,22 +1473,37 @@ public class MigrationService {
                         this.migrationFeign.createGroupsAssigments(bearerToken, groupsProfRequest);
                     }
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
 
-                    if(e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateReferences(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateReferences(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("referencias");
@@ -1126,7 +1515,7 @@ public class MigrationService {
 
                     Cell cellClaveMPRO = row.getCell(0);
                     if (cellClaveMPRO == null || cellClaveMPRO.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Clave MPRO is required");
+                        throw new RuntimeException("Clave MPRO es requerido");
                     }
                     Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, cellClaveMPRO.getStringCellValue()).getData().getId();
 
@@ -1136,32 +1525,47 @@ public class MigrationService {
                     Cell cellNombre = row.getCell(1);
                     Cell cellTelefono = row.getCell(2);
                     if(cellNombre == null || cellNombre.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Name is required");
+                        throw new RuntimeException("Nombre es requerido");
                     }
                     if(cellTelefono == null || cellTelefono.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Phone is required");
+                        throw new RuntimeException("Telefono es requerido");
                     }
                     referencesValues.put("Nombre", cellNombre.getStringCellValue());
                     referencesValues.put("Teléfono", cellTelefono.getStringCellValue());
 
                     migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, references);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
 
-                    if(e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateInfoBancaria(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateInfoBancaria(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("informacion bancaria");
@@ -1173,7 +1577,7 @@ public class MigrationService {
 
                     Cell cellClaveMPRO = row.getCell(0);
                     if (cellClaveMPRO == null || cellClaveMPRO.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Clave MPRO is required");
+                        throw new RuntimeException("Clave MPRO es requerido");
                     }
                     Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, cellClaveMPRO.getStringCellValue()).getData().getId();
 
@@ -1185,16 +1589,16 @@ public class MigrationService {
                     Cell cellClabe = row.getCell(3);
                     Cell cellTitular = row.getCell(4);
                     if(cellBanco == null || cellBanco.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Banco is required");
+                        throw new RuntimeException("Banco es requerido");
                     }
                     if(cellCuenta == null || cellCuenta.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Cuenta bancaria is required");
+                        throw new RuntimeException("Cuenta bancaria es requerido");
                     }
                     if(cellClabe == null || cellClabe.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Clabe interbancaria is required");
+                        throw new RuntimeException("Clabe interbancaria es requerido");
                     }
                     if(cellTitular == null || cellTitular.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Titular de la cuenta is required");
+                        throw new RuntimeException("Titular de la cuenta es requerido");
                     }
 
                     informacionPagoValues.put("Banco", cellBanco.getStringCellValue().toUpperCase());
@@ -1204,22 +1608,37 @@ public class MigrationService {
 
                     migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, informacionPago);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
 
-                    if(e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public void migrateInfoSueldos(MultipartFile file) {
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> migrateInfoSueldos(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("sueldos");
@@ -1230,7 +1649,7 @@ public class MigrationService {
                     Row row = sheet.getRow(i);
                     Cell cellClaveMPRO = row.getCell(0);
                     if (cellClaveMPRO == null || cellClaveMPRO.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Clave MPRO is required");
+                        throw new RuntimeException("Clave MPRO es requerido");
                     }
                     Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, cellClaveMPRO.getStringCellValue()).getData().getId();
 
@@ -1240,10 +1659,10 @@ public class MigrationService {
                     Cell cellSueldoMensual = row.getCell(1);
                     Cell cellSueldoDiario = row.getCell(2);
                     if(cellSueldoMensual == null || cellSueldoMensual.getNumericCellValue() == 0) {
-                        throw new RuntimeException("Salario mensual is required");
+                        throw new RuntimeException("Salario mensual es requerido");
                     }
                     if(cellSueldoDiario == null || cellSueldoMensual.getNumericCellValue() == 0) {
-                        throw new RuntimeException("Sueldo diario is required");
+                        throw new RuntimeException("Sueldo diario es requerido");
                     }
 
                     payrollInformationValues.put("Salario mensual", cellSueldoMensual.getNumericCellValue());
@@ -1251,23 +1670,37 @@ public class MigrationService {
 
                     migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, payrollInformation);
                 } catch (ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sueldos: " + e.getError().getErrors().getFields());
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
 
-                    if(e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
+
+                    if (e.getError().getErrors().getId() != null) {
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet sueldos: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
         } catch (Exception e) {
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
             log.error("Error processing Excel file: " + e.getMessage());
         }
+        return errors;
     }
-    public File loadCompensationsCategories(MultipartFile file) {
-
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> loadCompensationsCategories(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
@@ -1314,8 +1747,14 @@ public class MigrationService {
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
                 try {
                     Row row = sheet.getRow(i);
-                    String code = row.getCell(cellCode).getStringCellValue();
-                    String denomination = row.getCell(cellDenomination).getStringCellValue();
+                    Cell cellCode1 = row.getCell(cellCode);
+                    if(cellCode1 == null || cellCode1.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Codigo es requerido");
+                    }
+                    Cell cellDenomination1 = row.getCell(cellDenomination);
+                    if(cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Denominacion es requerido");
+                    }
                     Map<String, Object> fieldsValues = new HashMap<>();
 
                     fieldsExcel.forEach((nameColumn, position) -> {
@@ -1353,38 +1792,46 @@ public class MigrationService {
                     long statusId = getStatusId(cellStatus2);
 
                     CompCategoriesRequest compCategories = new CompCategoriesRequest();
-                    compCategories.setCode(code);
-                    compCategories.setDenomination(denomination);
+                    compCategories.setCode(cellCode1.getStringCellValue());
+                    compCategories.setDenomination(cellDenomination1.getStringCellValue());
                     compCategories.setFieldsValues(fieldsValues);
                     compCategories.setStatusId(statusId);
 
                     migrationFeign.createCompensationCategories(bearerToken, compCategories);
                     row.getCell(0).setCellStyle(cellStyle);
-                } catch(ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet categorias de puesto: " + e.getError().getErrors().getFields());
+                } catch (ErrorResponseException e) {
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(sheet.getRow(i), error.getErrors().getFields());
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet categorias de puesto: " + e.getMessage());
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
-            // Archivo modificado para devolver
-            modifiedFile = this.createModifiedWorkbook(workbook, file);
         } catch (Exception e) {
-            this.logProcessingExcelFile(e);
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
+            log.error("Error processing Excel file: " + e.getMessage());
         }
-        return modifiedFile;
+        return errors;
     }
 
-    public File loadTabs(MultipartFile file) {
-
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> loadTabs(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
@@ -1430,8 +1877,14 @@ public class MigrationService {
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
                 try {
                     Row row = sheet.getRow(i);
-                    String code = row.getCell(cellCode).getStringCellValue();
-                    String denomination = row.getCell(cellDenomination).getStringCellValue();
+                    Cell cellCode1 = row.getCell(cellCode);
+                    if(cellCode1 == null || cellCode1.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Nivel macropay es requerido");
+                    }
+                    Cell cellDenomination1 = row.getCell(cellDenomination);
+                    if(cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Posicion es requerido");
+                    }
                     Map<String, Object> fieldsValues = new HashMap<>();
 
                     fieldsExcel.forEach((nameColumn, position) -> {
@@ -1464,8 +1917,8 @@ public class MigrationService {
                     long statusId = getStatusId(cellStatus2);
 
                     TabsRequest tabsRequest = new TabsRequest();
-                    tabsRequest.setCode(code);
-                    tabsRequest.setDenomination(denomination);
+                    tabsRequest.setCode(cellCode1.getStringCellValue());
+                    tabsRequest.setDenomination(cellDenomination1.getStringCellValue());
                     tabsRequest.setMinAuthorizedSalary(0L);
                     tabsRequest.setMaxAuthorizedSalary(0L);
                     tabsRequest.setStatusId(statusId);
@@ -1473,31 +1926,39 @@ public class MigrationService {
 
                     migrationFeign.createTab(bearerToken, tabsRequest);
                     row.getCell(0).setCellStyle(cellStyle);
-                } catch(ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet tabuladores: " + e.getError().getErrors().getFields());
+                } catch (ErrorResponseException e) {
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja tabuladores");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(sheet.getRow(i), error.getErrors().getFields());
                 } catch (Exception e) {
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja tabuladores: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
                     log.error("Error processing row " + (i + 1) + " in sheet tabuladores: " + e.getMessage());
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
                 }
             }
-
-            modifiedFile = this.createModifiedWorkbook(workbook, file);
         } catch (Exception e) {
-            this.logProcessingExcelFile(e);
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
+            log.error("Error processing Excel file: " + e.getMessage());
         }
-        return modifiedFile;
+        return errors;
     }
 
-    public File loadWorkPositionCategories(MultipartFile file) {
-
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> loadWorkPositionCategories(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         // Archivo modificado para devolver
         File modifiedFile = new File(MODIFIED + file.getOriginalFilename());
 
@@ -1544,8 +2005,14 @@ public class MigrationService {
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
                 try {
                     Row row = sheet.getRow(i);
-                    String code = row.getCell(cellCode).getStringCellValue();
-                    String denomination = row.getCell(cellDenomination).getStringCellValue();
+                    Cell cellCode1 = row.getCell(cellCode);
+                    if(cellCode1 == null || cellCode1.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Codigo es requerido");
+                    }
+                    Cell cellDenomination1 = row.getCell(cellDenomination);
+                    if(cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()){
+                        throw new RuntimeException("Denominacion es requerido");
+                    }
                     Map<String, Object> fieldsValues = new HashMap<>();
 
                     fieldsExcel.forEach((nameColumn, position) -> {
@@ -1579,37 +2046,46 @@ public class MigrationService {
                     long statusId = getStatusId(cellStatus2);
 
                     WorkPositionCategoryRequest workPositionCategoryRequest = new WorkPositionCategoryRequest();
-                    workPositionCategoryRequest.setCode(code);
-                    workPositionCategoryRequest.setDenomination(denomination);
+                    workPositionCategoryRequest.setCode(cellCode1.getStringCellValue());
+                    workPositionCategoryRequest.setDenomination(cellDenomination1.getStringCellValue());
                     workPositionCategoryRequest.setFieldsValues(fieldsValues);
                     workPositionCategoryRequest.setStatusId(statusId);
 
                     migrationFeign.createWorkPositionCategory(bearerToken, workPositionCategoryRequest);
                     row.getCell(0).setCellStyle(cellStyle);
-                } catch(ErrorResponseException e) {
+                } catch (ErrorResponseException e) {
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja puestos");
+                    errors.add(error);
+
                     log.error("Error processing row " + (i + 1) + " in sheet puestos: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(sheet.getRow(i), error.getErrors().getFields());
                 } catch (Exception e) {
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja puestos: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
                     log.error("Error processing row " + (i + 1) + " in sheet puestos: " + e.getMessage());
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
                 }
             }
-            modifiedFile = this.createModifiedWorkbook(workbook, file);
         } catch (Exception e) {
-            this.logProcessingExcelFile(e);
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
+            log.error("Error processing Excel file: " + e.getMessage());
         }
-        return modifiedFile;
+        return errors;
     }
     
-    public void loadGroups(MultipartFile file) {
-
-        String bearerToken = this.getBearerToken();
-
+    public List<ErrorResponse> loadGroups(MultipartFile file, String bearerToken) {
+        List<ErrorResponse> errors = new ArrayList<>();
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -1660,31 +2136,35 @@ public class MigrationService {
 
                     // Realizamos la petición
                     this.migrationFeign.createGroups(bearerToken, groupsRequest);
-                } catch(ErrorResponseException e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet grupos: " + e.getError().getErrors().getFields());
+                } catch (ErrorResponseException e) {
+                    ErrorResponse error = e.getError();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones");
+                    errors.add(error);
+
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
 
                     if (e.getError().getErrors().getId() != null) {
-                        log.error("With model_fields id: " + e.getError().getErrors().getId());
+                        log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
-                    log.error("Error processing row " + (i + 1) + " in sheet grupos: " + e.getMessage());
+                    ErrorResponse error = new ErrorResponse();
+                    error.setMessage("Error procesando fila " + (i + 1) + " en la hoja regiones: " + e.getMessage());
+                    ErrorDetailResponse errorDetail = new ErrorDetailResponse();
+                    errorDetail.setCode("C03");
+                    errorDetail.setDescription("Validation Exception");
+                    errorDetail.setFields(Collections.singletonList(e.getMessage()));
+                    error.setErrors(errorDetail);
+                    errors.add(error);
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
-
-        } catch(ErrorResponseException e) {
-            log.error("Error searching groups, Description: " + e.getError().getErrors().getDescription() 
-                        + "\n Fields: " + e.getError().getErrors().getFields().toString());
         } catch (Exception e) {
-            this.logProcessingExcelFile(e);
+            ErrorResponse error = new ErrorResponse();
+            error.setMessage("Error procesando archivo " + e.getMessage());
+            errors.add(error);
+            log.error("Error processing Excel file: " + e.getMessage());
         }
-    }
-
-    private String getBearerToken() {
-        // Realizamos el login para obtener un token
-        LoginRequest loginRequest = new LoginRequest();
-        loginRequest.setEmail(email);
-        loginRequest.setPassword(password);
-        return  BEARER.concat(loginFeign.login(loginRequest).getData().getToken());
+        return errors;
     }
 
     private void logSheetNameNumberOfRows(Sheet sheet) {
@@ -1709,27 +2189,6 @@ public class MigrationService {
         ((XSSFCellStyle) redCellStyle).setFillForegroundColor(redColor);
         redCellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return redCellStyle;
-    }
-
-    private void logProcessingExcelFile(Exception e) {
-        log.error("Error processing Excel file: " + e.getMessage());
-    }
-
-    private void agregarCeldaError(Row row, String message) {
-        // Agregar celda con el mensaje de error en la fila que falló
-        Cell errorCell = row.createCell(row.getPhysicalNumberOfCells() + 1);
-        errorCell.setCellValue("Error: " + message);
-    }
-    
-    private void agregarExcetionFeign(Row row, List<String> fields) {
-        // Agregar celda con el mensaje de error en la fila que falló
-        Cell errorCell = row.createCell(row.getPhysicalNumberOfCells() + 1);
-        StringBuilder errores = new StringBuilder();
-        for (String f : fields) {
-            errores = errores.append(f).append(" ");
-        }
-
-        errorCell.setCellValue("Error: " + errores.toString());
     }
 
     private File createModifiedWorkbook(Workbook workbook, MultipartFile file) {

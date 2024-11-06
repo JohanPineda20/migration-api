@@ -1,3 +1,2 @@
 hrcore:
-  users-api: ${HRCORE_USERS_API:https://hqedejv4h2.execute-api.us-east-1.amazonaws.com/dev/api2}
   organization-api: ${HRCORE_ORGANIZATION_API:http://localhost:8081/core-organizations/v1}

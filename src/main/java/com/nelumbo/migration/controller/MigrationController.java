@@ -1,6 +1,8 @@
 package com.nelumbo.migration.controller;
 
+import com.nelumbo.migration.feign.dto.responses.error.ErrorResponse;
 import com.nelumbo.migration.service.MigrationService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.InputStreamResource;
@@ -17,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.List;
 
 @Slf4j
 @RestController
@@ -31,148 +34,132 @@ public class MigrationController {
     private final MigrationService migrationService;
 
     @PostMapping("empresa")
-    public ResponseEntity<Void> migrateEmpresa(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateEmpresa(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateEmpresa(@RequestPart(value = "file") MultipartFile file,
+                                               HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateEmpresa(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("region")
-    public ResponseEntity<Void> migrateRegion(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateRegion(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateRegion(@RequestPart(value = "file") MultipartFile file,
+                                                             HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateRegion(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("division")
-    public ResponseEntity<Void> migrateDivision(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateDivision(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateDivision(@RequestPart(value = "file") MultipartFile file,
+                                                HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateDivision(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("zona")
-    public ResponseEntity<Void> migrateZona(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateZona(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateZona(@RequestPart(value = "file") MultipartFile file,
+                                            HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateZona(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("area")
-    public ResponseEntity<Void> migrateArea(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateArea(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateArea(@RequestPart(value = "file") MultipartFile file,
+                                            HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateArea(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("subarea")
-    public ResponseEntity<Void> migrateSubarea(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateSubarea(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateSubarea(@RequestPart(value = "file") MultipartFile file,
+                                               HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateSubarea(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("departamento")
-    public ResponseEntity<Void> migrateDepartamento(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateDepartamento(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateDepartamento(@RequestPart(value = "file") MultipartFile file,
+                                                    HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateDepartamento(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("cost-centers")
-    public ResponseEntity<Void> migrateCostCenters(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateCostCenters(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateCostCenters(@RequestPart(value = "file") MultipartFile file,
+                                                   HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateCostCenters(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
 
     @PostMapping("cost-centers-org-entities-geographic")
-    public ResponseEntity<Void> migrateCostCentersOrgEntitiesGeographic(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateCostCentersOrgEntitiesGeographic(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateCostCentersOrgEntitiesGeographic(@RequestPart(value = "file") MultipartFile file,
+                                                                        HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateCostCentersOrgEntitiesGeographic(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
 
     @PostMapping("cost-centers-org-entities-organizative")
-    public ResponseEntity<Void> migrateCostCentersOrgEntitiesOrganizative(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateCostCentersOrgEntitiesOrganizative(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateCostCentersOrgEntitiesOrganizative(@RequestPart(value = "file") MultipartFile file,
+                                                                          HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateCostCentersOrgEntitiesOrganizative(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
 
     @PostMapping("stores")
-    public ResponseEntity<Void> migrateStores(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateStores(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateStores(@RequestPart(value = "file") MultipartFile file,
+                                              HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateStores(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
 
     @PostMapping("stores-org-entities-geographic")
-    public ResponseEntity<Void> migrateStoresOrgEntitiesGeographic(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateStoresOrgEntitiesGeographic(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateStoresOrgEntitiesGeographic(@RequestPart(value = "file") MultipartFile file,
+                                                                   HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateStoresOrgEntitiesGeographic(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("stores-org-entities-organizative")
-    public ResponseEntity<Void> migrateStoresOrgEntitiesOrganizative(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateStoresOrgEntitiesOrganizative(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateStoresOrgEntitiesOrganizative(@RequestPart(value = "file") MultipartFile file,
+                                                                     HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateStoresOrgEntitiesOrganizative(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("work-positions")
-    public ResponseEntity<Void> migrateWorkPositions(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateWorkPositions(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateWorkPositions(@RequestPart(value = "file") MultipartFile file,
+                                                     HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateWorkPositions(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("work-positions-details")
-    public ResponseEntity<Void> migrateWorkPositionsDetails(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateWorkPositionsDetails(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateWorkPositionsDetails(@RequestPart(value = "file") MultipartFile file,
+                                                            HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateWorkPositionsDetails(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("profiles")
-    public ResponseEntity<Void> migrateProfiles(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateProfiles(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateProfiles(@RequestPart(value = "file") MultipartFile file,
+                                                HttpServletRequest request){
+
+        return new ResponseEntity<>(migrationService.migrateProfiles(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("profiles-groups")
-    public ResponseEntity<Void> migrateProfilesGroups(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateProfilesGroups(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateProfilesGroups(@RequestPart(value = "file") MultipartFile file,
+                                                      HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateProfilesGroups(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("references")
-    public ResponseEntity<Void> migrateReferences(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateReferences(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateReferences(@RequestPart(value = "file") MultipartFile file,
+                                                  HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateReferences(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("info-bancaria")
-    public ResponseEntity<Void> migrateInfoBancaria(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateInfoBancaria(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateInfoBancaria(@RequestPart(value = "file") MultipartFile file,
+                                                    HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateInfoBancaria(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("info-sueldos")
-    public ResponseEntity<Void> migrateInfoSueldos(@RequestPart(value = "file") MultipartFile file){
-        migrationService.migrateInfoSueldos(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> migrateInfoSueldos(@RequestPart(value = "file") MultipartFile file,
+                                                   HttpServletRequest request){
+        return new ResponseEntity<>(migrationService.migrateInfoSueldos(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
     @PostMapping("/load-compensations")
-    public ResponseEntity<Void> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file) {
-        migrationService.loadCompensationsCategories(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> cargarCompensaciones(@RequestPart(value = "file") MultipartFile file,
+                                                     HttpServletRequest request) {
+
+        return new ResponseEntity<>(migrationService.loadCompensationsCategories(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
 
     @PostMapping("/load-tabs")
-    public ResponseEntity<Void> loadTabs(@RequestPart(value = "file") MultipartFile file) {
-        migrationService.loadTabs(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> loadTabs(@RequestPart(value = "file") MultipartFile file,
+                                         HttpServletRequest request) {
+        return new ResponseEntity<>(migrationService.loadTabs(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
 
     @PostMapping("/load-work-position-categories")
-    public ResponseEntity<Void> loadWorkPositionCategories(@RequestPart(value = "file") MultipartFile file) {
-        migrationService.loadWorkPositionCategories(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
+    public ResponseEntity<List<ErrorResponse>> loadWorkPositionCategories(@RequestPart(value = "file") MultipartFile file,
+                                                           HttpServletRequest request) {
+        return new ResponseEntity<>(migrationService.loadWorkPositionCategories(file, request.getHeader("Authorization")) ,HttpStatus.OK);
     }
     
     @PostMapping("/load-groups")
-    public ResponseEntity<Void> loadWorkGroups(@RequestPart(value = "file") MultipartFile file) {
-        migrationService.loadGroups(file);
-        return new ResponseEntity<>(HttpStatus.ACCEPTED);
-    }
-
-    private ResponseEntity<InputStreamResource> processFile(File modifiedFile) {
-        try {
-            InputStreamResource resource = new InputStreamResource(new FileInputStream(modifiedFile));
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.add(HttpHeaders.CONTENT_DISPOSITION, ATTACHMENT_FILENAME + modifiedFile.getName());
-
-            return ResponseEntity.ok()
-                    .headers(headers)
-                    .contentLength(modifiedFile.length())
-                    .contentType(MediaType.parseMediaType(APPLICATION_EXCEL))
-                    .body(resource);
-        } catch (IOException e) {
-            log.error(ERROR_EXCEL + " {}", e.getMessage());
-            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+    public ResponseEntity<List<ErrorResponse>> loadWorkGroups(@RequestPart(value = "file") MultipartFile file,
+                                               HttpServletRequest request) {
+        return new ResponseEntity<>(migrationService.loadGroups(file, request.getHeader("Authorization")), HttpStatus.OK);
     }
 }
