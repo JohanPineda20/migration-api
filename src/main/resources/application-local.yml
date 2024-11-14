@@ -1,2 +1,4 @@
+server:
+  port: 8544
 hrcore:
   organization-api: ${HRCORE_ORGANIZATION_API:http://localhost:8081/core-organizations/v1}

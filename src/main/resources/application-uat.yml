@@ -1,2 +1,7 @@
+server:
+  port: 8546
 hrcore:
   organization-api: ${HRCORE_ORGANIZATION_API:https://hqedejv4h2.execute-api.us-east-1.amazonaws.com/uat/api1}
+logging:
+  file:
+    name: /var/www/html/migration/migrationuat/migrationuat.log

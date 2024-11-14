@@ -12,6 +12,11 @@ import java.util.List;
 @FeignClient(name= "migration", url="${hrcore.organization-api}/migration", configuration = CustomErrorDecoder.class)
 public interface MigrationFeign {
 
+    @GetMapping(path = "/field/{id}")
+    DefaultResponse<DefaultNameResponse> getNameField(@RequestHeader("Authorization") String token,
+                                                                   @PathVariable Long id,
+                                                                   @RequestParam Integer fieldType);
+
     @GetMapping(path = "/organization-entities/{orgEntityId}/organization-entity-details")
     DefaultResponse<OrgEntityDetailResponse> findOrgEntityDetailByName(@RequestHeader("Authorization") String token,
                                                                        @PathVariable Long orgEntityId,
