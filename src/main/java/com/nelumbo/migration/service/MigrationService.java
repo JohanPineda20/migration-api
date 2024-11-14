@@ -23,10 +23,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -83,15 +80,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet empresa: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet empresa: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet empresa: " + e.getMessage());
                 }
             }
@@ -153,15 +159,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
                 }
             }
@@ -223,15 +238,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet divisiones: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet divisiones: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet divisiones: " + e.getMessage());
                 }
             }
@@ -293,15 +317,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet zonas: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet zonas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet zonas: " + e.getMessage());
                 }
             }
@@ -353,15 +386,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet áreas: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet áreas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet áreas: " + e.getMessage());
                 }
             }
@@ -423,15 +465,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet subareas: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet subareas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet subareas: " + e.getMessage());
                 }
             }
@@ -493,15 +544,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet departamentos: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet departamentos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet departamentos: " + e.getMessage());
                 }
             }
@@ -610,15 +670,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet ceco: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet ceco: " + e.getMessage());
                 }
             }
@@ -707,15 +776,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_geografica: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_geografica: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_geografica: " + e.getMessage());
                 }
             }
@@ -792,15 +870,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_organizativa: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_organizativa: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_organizativa: " + e.getMessage());
                 }
             }
@@ -908,15 +995,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
                 }
             }
@@ -1005,15 +1101,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
                 }
             }
@@ -1088,15 +1193,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + e.getMessage());
                 }
             }
@@ -1258,15 +1372,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
                 }
             }
@@ -1345,15 +1468,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
                 }
             }
@@ -1530,15 +1662,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getMessage());
                 }
             }
@@ -1595,15 +1736,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getMessage());
                 }
             }
@@ -1668,15 +1818,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + e.getMessage());
                 }
             }
@@ -1729,15 +1888,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet sueldos: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet sueldos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet sueldos: " + e.getMessage());
                 }
             }
@@ -1853,15 +2021,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet categorias de puesto: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet categorias de puesto: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet categorias de puesto: " + e.getMessage());
                 }
             }
@@ -1974,15 +2151,24 @@ public class MigrationService {
                     failure++;
                     ErrorResponse error = e.getError();
                     this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet tabuladores: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
+                    log.error("Error processing row " + (i + 1) + " in sheet tabuladores: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                         log.error("With fields id: " + e.getError().getErrors().getId());
                     }
                 } catch (Exception e) {
+                    reThrowFeignException(e);
                     failure++;
                     this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    if (sheet.getRow(i).getCell(0) != null){
+                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                    } else {
+                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                    }
                     log.error("Error processing row " + (i + 1) + " in sheet tabuladores: " + e.getMessage());
                 }
             }
@@ -1995,8 +2181,8 @@ public class MigrationService {
 
     public UtilResponse loadWorkPositionCategories(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
@@ -2035,82 +2221,114 @@ public class MigrationService {
                 cell.setCellStyle(this.redCellStyle(workbook));
                 cell.setCellValue("Codigo / Denominacion / Estatus no existe");
                 workbook.write(modifiedFileOutputStream);
-                return new UtilResponse(modifiedFileOutputStream, success, failure);
+                return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
             }
-
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    String cellCode1 = getCellValueAsString(row.getCell(cellCode));
-                    if(cellCode1.isEmpty()){
-                        throw new RuntimeException("Codigo es requerido");
-                    }
-                    Cell cellDenomination1 = row.getCell(cellDenomination);
-                    if(cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Denominacion es requerido");
-                    }
-                    Map<String, Object> fieldsValues = new HashMap<>();
-
-                    fieldsExcel.forEach((nameColumn, position) -> {
-                        Cell cell = row.getCell(position);
-                        log.info(nameColumn);
-                        if (cell == null) {
-                            fieldsValues.put(nameColumn, null);
-                        } else {
-                            switch (cell.getCellType()) {
-                                case STRING:
-                                    fieldsValues.put(nameColumn, cell.getStringCellValue());
-                                    break;
-                                case NUMERIC:
-                                    if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
-                                        fieldsValues.put(nameColumn, cell.getDateCellValue());
-                                    } else {
-                                        fieldsValues.put(nameColumn, (long) cell.getNumericCellValue());
-                                    }
-                                    break;
-                                case BOOLEAN:
-                                    fieldsValues.put(nameColumn, cell.getBooleanCellValue());
-                                    break;
-                                default:
-                                    fieldsValues.put(nameColumn, null);
-                                    break;
-                            }
+                int finalI = i;
+                Integer finalCellDenomination = cellDenomination;
+                Integer finalCellCode = cellCode;
+                Integer finalCellStatus = cellStatus;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(finalI);
+                        String cellCode1 = getCellValueAsString(row.getCell(finalCellCode));
+                        if (cellCode1.isEmpty()) {
+                            throw new RuntimeException("Codigo es requerido");
                         }
-                    });
+                        Cell cellDenomination1 = row.getCell(finalCellDenomination);
+                        if (cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Denominacion es requerido");
+                        }
+                        Map<String, Object> fieldsValues = new HashMap<>();
 
-                    Cell cellStatus2 = row.getCell(cellStatus);
-                    long statusId = getStatusId(cellStatus2);
+                        fieldsExcel.forEach((nameColumn, position) -> {
+                            Cell cell = row.getCell(position);
+                            log.info(nameColumn);
+                            if (cell == null) {
+                                fieldsValues.put(nameColumn, null);
+                            } else {
+                                switch (cell.getCellType()) {
+                                    case STRING:
+                                        fieldsValues.put(nameColumn, cell.getStringCellValue());
+                                        break;
+                                    case NUMERIC:
+                                        if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+                                            fieldsValues.put(nameColumn, cell.getDateCellValue());
+                                        } else {
+                                            fieldsValues.put(nameColumn, (long) cell.getNumericCellValue());
+                                        }
+                                        break;
+                                    case BOOLEAN:
+                                        fieldsValues.put(nameColumn, cell.getBooleanCellValue());
+                                        break;
+                                    default:
+                                        fieldsValues.put(nameColumn, null);
+                                        break;
+                                }
+                            }
+                        });
 
-                    WorkPositionCategoryRequest workPositionCategoryRequest = new WorkPositionCategoryRequest();
-                    workPositionCategoryRequest.setCode(cellCode1);
-                    workPositionCategoryRequest.setDenomination(cellDenomination1.getStringCellValue());
-                    workPositionCategoryRequest.setFieldsValues(fieldsValues);
-                    workPositionCategoryRequest.setStatusId(statusId);
+                        Cell cellStatus2 = row.getCell(finalCellStatus);
+                        long statusId = getStatusId(cellStatus2);
 
-                    migrationFeign.createWorkPositionCategory(bearerToken, workPositionCategoryRequest);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet puestos: " + e.getError().getErrors().getFields());
-                    if (e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
+                        WorkPositionCategoryRequest workPositionCategoryRequest = new WorkPositionCategoryRequest();
+                        workPositionCategoryRequest.setCode(cellCode1);
+                        workPositionCategoryRequest.setDenomination(cellDenomination1.getStringCellValue());
+                        workPositionCategoryRequest.setFieldsValues(fieldsValues);
+                        workPositionCategoryRequest.setStatusId(statusId);
+
+                        migrationFeign.createWorkPositionCategory(bearerToken, workPositionCategoryRequest);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(finalI), error.getErrors(), 2);
+                        if (sheet.getRow(finalI).getCell(0) != null){
+                            sheet.getRow(finalI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(finalI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (finalI + 1) + " in sheet puestos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(finalI), e.getMessage());
+                        if (sheet.getRow(finalI).getCell(0) != null){
+                            sheet.getRow(finalI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(finalI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (finalI + 1) + " in sheet puestos: " + e.getMessage());
                     }
-                } catch (Exception e) {
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    log.error("Error processing row " + (i + 1) + " in sheet puestos: " + e.getMessage());
-                }
+                }));
             }
+
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
             workbook.write(modifiedFileOutputStream);
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     private void logSheetNameNumberOfRows(Sheet sheet) {
@@ -2178,6 +2396,17 @@ public class MigrationService {
     }
 
     private void catchUnexpectedExceptions(Exception e) {
+        catchFeignExceptions(e);
+        if (e instanceof NullException){
+            throw new NullException("Wrong file");
+        }
+        if (e instanceof ErrorResponseException e1){
+            throw new ErrorResponseException(e1.getError());
+        }
+        throw new RuntimeException(e.getMessage());
+    }
+
+    private void catchFeignExceptions(Exception e) {
         if (e instanceof FeignException e1) {
             if (e1.status() == 503) {
                 throw new ServiceUnavailableException("An error occurred while communicating with the core organization service");
@@ -2190,13 +2419,6 @@ public class MigrationService {
             }
             throw new RuntimeException(e.getMessage());
         }
-        if (e instanceof NullException){
-            throw new NullException("Wrong file");
-        }
-        if (e instanceof ErrorResponseException e1){
-            throw new ErrorResponseException(e1.getError());
-        }
-        throw new RuntimeException(e.getMessage());
     }
 
     private String getCellValueAsString(Cell cell) {
@@ -2274,5 +2496,11 @@ public class MigrationService {
             orgEntityCache.put(cacheKey, migrationFeign.findOrgEntityDetailByName(token, entityId, name).getData().getName());
         }
         return orgEntityCache.get(cacheKey);
+    }
+
+    private void reThrowFeignException(Exception e) {
+        if (e instanceof FeignException e1) {
+            throw e1;
+        }
     }
 }
