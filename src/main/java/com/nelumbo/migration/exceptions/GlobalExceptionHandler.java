@@ -94,7 +94,27 @@ public class GlobalExceptionHandler {
         errorResponse.setErrors(new ErrorDetailResponse("N01GNRC04", "INTERNAL_EXCEPTION",
                 Collections.singletonList(e.getMessage())));
         log.error("Error processing Excel file: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+    }
+
+    @ExceptionHandler(UnauthorizedException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ResponseEntity<ErrorResponse> handleException(UnauthorizedException e) {
+        ErrorResponse errorResponse = new ErrorResponse();
+        errorResponse.setErrors(new ErrorDetailResponse("S01GNRC13", "SECURITY_EXCEPTION",
+                Collections.singletonList(e.getMessage())));
+        log.error("Error processing Excel file: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    @ExceptionHandler(ForbbidenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ResponseEntity<ErrorResponse> handleException(ForbbidenException e) {
+        ErrorResponse errorResponse = new ErrorResponse();
+        errorResponse.setErrors(new ErrorDetailResponse("S01GNRC10", "SECURITY_EXCEPTION",
+                Collections.singletonList(e.getMessage())));
+        log.error("Error processing Excel file: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
     }
 
     @ExceptionHandler(ErrorResponseException.class)

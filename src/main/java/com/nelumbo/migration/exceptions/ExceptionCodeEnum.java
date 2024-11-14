@@ -4,6 +4,11 @@ import lombok.Getter;
 
 @Getter
 public enum ExceptionCodeEnum {
+    S01GNRC09("El token es nulo"),
+    S01GNRC10("Usuario inválido"),
+    S01GNRC11("Sin sesión activa, inicie sesión nuevamente"),
+    S01GNRC12("El token no es el de la sesión activa"),
+    S01GNRC13("No tiene permisos"),
     N01GNR01("No se encontró el ID"),
     N01GNRC01("No se encontró el objeto"),
     C01GNRC01("El objeto ya existe"),

@@ -1,9 +1,6 @@
 package com.nelumbo.migration.service;
 
-import com.nelumbo.migration.exceptions.ErrorResponseException;
-import com.nelumbo.migration.exceptions.ExceptionCodeEnum;
-import com.nelumbo.migration.exceptions.NullException;
-import com.nelumbo.migration.exceptions.ServiceUnavailableException;
+import com.nelumbo.migration.exceptions.*;
 import com.nelumbo.migration.feign.*;
 import com.nelumbo.migration.feign.dto.*;
 import com.nelumbo.migration.feign.dto.requests.*;
@@ -116,6 +113,7 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -136,7 +134,11 @@ public class MigrationService {
                     if(cellEmpresa.isEmpty()) {
                         throw new RuntimeException("Empresa es requerido");
                     }
-                    orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa).getData().getId());
+                    Long parentId = parentIdCache.computeIfAbsent(cellEmpresa, empresa ->
+                            migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, empresa).getData().getId()
+                    );
+                    orgEntityDetailRequest.setParentId(parentId);
+
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
                         if (cell != null) {
@@ -181,6 +183,7 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -201,7 +204,11 @@ public class MigrationService {
                     if(cellRegion.isEmpty()) {
                         throw new RuntimeException("Region es requerido");
                     }
-                    orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 2L, cellRegion).getData().getId());
+                    Long parentId = parentIdCache.computeIfAbsent(cellRegion, region ->
+                            migrationFeign.findOrgEntityDetailByName(bearerToken, 2L, region).getData().getId()
+                    );
+                    orgEntityDetailRequest.setParentId(parentId);
+
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
                         if (cell != null) {
@@ -246,6 +253,7 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -266,7 +274,11 @@ public class MigrationService {
                     if(cellDivision.isEmpty()) {
                         throw new RuntimeException("Division es requerido");
                     }
-                    orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 3L, cellDivision).getData().getId());
+                    Long parentId = parentIdCache.computeIfAbsent(cellDivision, division ->
+                            migrationFeign.findOrgEntityDetailByName(bearerToken, 3L, division).getData().getId()
+                    );
+                    orgEntityDetailRequest.setParentId(parentId);
+
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
                         if (cell != null) {
@@ -371,6 +383,7 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -391,7 +404,11 @@ public class MigrationService {
                     if(cellArea.isEmpty()) {
                         throw new RuntimeException("Area es requerida");
                     }
-                    orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea).getData().getId());
+                    Long parentId = parentIdCache.computeIfAbsent(cellArea, area ->
+                            migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, area).getData().getId()
+                    );
+                    orgEntityDetailRequest.setParentId(parentId);
+
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
                         if (cell != null) {
@@ -436,6 +453,7 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -456,7 +474,11 @@ public class MigrationService {
                     if(cellSubarea.isEmpty()) {
                         throw new RuntimeException("Subarea es requerida");
                     }
-                    orgEntityDetailRequest.setParentId(migrationFeign.findOrgEntityDetailByName(bearerToken, 6L, cellSubarea).getData().getId());
+                    Long parentId = parentIdCache.computeIfAbsent(cellSubarea, subarea ->
+                            migrationFeign.findOrgEntityDetailByName(bearerToken, 6L, subarea).getData().getId()
+                    );
+                    orgEntityDetailRequest.setParentId(parentId);
+
                     fieldValues.forEach((name, position) ->{
                         Cell cell = row.getCell(position);
                         if (cell != null) {
@@ -616,6 +638,7 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("ceco_estructura_geografica");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> costCenterCache = new ConcurrentHashMap<>();
             Map<String, Long> entityCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
@@ -626,7 +649,7 @@ public class MigrationService {
                     if(cellCode.isEmpty()) {
                         throw new RuntimeException("Codigo del centro de costos es requerido");
                     }
-                    Long costCenterId = migrationFeign.findCostCenterByCode(bearerToken, cellCode).getData().getId();
+                    Long costCenterId = costCenterCache.computeIfAbsent(cellCode, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
 
                     CostCenterDetailRequest costCenterDetailRequest = new CostCenterDetailRequest();
                     List<Long> orgEntityDetailIds = costCenterDetailRequest.getOrgEntityDetailIds();
@@ -712,6 +735,7 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("ceco_estructura_organizativa");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> costCenterCache = new ConcurrentHashMap<>();
             Map<String, Long> entityCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
@@ -723,7 +747,7 @@ public class MigrationService {
                     if(cellCode.isEmpty()) {
                         throw new RuntimeException("Codigo del centro de costos es requerido");
                     }
-                    Long costCenterId = migrationFeign.findCostCenterByCode(bearerToken, cellCode).getData().getId();
+                    Long costCenterId = costCenterCache.computeIfAbsent(cellCode, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
 
                     CostCenterDetailRequest costCenterDetailRequest = new CostCenterDetailRequest();
                     List<Long> orgEntityDetailIds = costCenterDetailRequest.getOrgEntityDetailIds();
@@ -797,6 +821,7 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("sucursales");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> costCenterCache = new ConcurrentHashMap<>();
             Map<String, Long> countriesCache = migrationFeign.findAll(bearerToken).getData().stream()
                     .collect(Collectors.toMap(
                             country -> country.getName().toLowerCase(), // Convertir a minúsculas
@@ -870,7 +895,7 @@ public class MigrationService {
                     String costCenter = getCellValueAsString(row.getCell(10));
                     Long costCenterId = null;
                     if(costCenter != null && !costCenter.isEmpty()) {
-                        costCenterId = migrationFeign.findCostCenterByCode(bearerToken, costCenter).getData().getId();
+                        costCenterId = costCenterCache.computeIfAbsent(costCenter, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
                     }
                     storeRequest.setCostCenterId(costCenterId);
                     Cell cellStatus = row.getCell(11);
@@ -1007,6 +1032,7 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("sucursal_estructura_organizativ");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> storeCache = new ConcurrentHashMap<>();
             Map<String, Long> entityCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
@@ -1017,7 +1043,7 @@ public class MigrationService {
                     if(cellCode.isEmpty()) {
                         throw new RuntimeException("Centro de sucursal es requerido");
                     }
-                    Long storeId = migrationFeign.findStoreByCode(bearerToken, cellCode).getData().getId();
+                    Long storeId = storeCache.computeIfAbsent(cellCode, code -> migrationFeign.findStoreByCode(bearerToken, code).getData().getId());
 
                     StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
                     List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
@@ -1125,6 +1151,12 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("cargo");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> workPosCatCache = new ConcurrentHashMap<>();
+            Map<String, Long> storeCache = new ConcurrentHashMap<>();
+            Map<String, Long> costCenterCache = new ConcurrentHashMap<>();
+            Map<String, Long> organizativeStructureCache = new ConcurrentHashMap<>();
+            Map<Long, DefaultResponse<StoreDetailResponse>> storeDetailsCache = new ConcurrentHashMap<>();
+            Map<String, String> orgEntityCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
             Map<String, Integer> fieldValues = new HashMap<>();
@@ -1158,22 +1190,23 @@ public class MigrationService {
                     if(cellWorkPosCat.isEmpty()) {
                         throw new RuntimeException("Puesto es requerido");
                     }
-                    Long workPosCatId = migrationFeign.findWorkPosCategoryByCode(bearerToken, cellWorkPosCat).getData().getId();
+                    Long workPosCatId = workPosCatCache.computeIfAbsent(cellWorkPosCat, code -> migrationFeign.findWorkPosCategoryByCode(bearerToken, code).getData().getId());
                     workPositionRequest.setWorkPosCatId(workPosCatId);
 
                     String cellStore = getCellValueAsString(row.getCell(4));
                     if(cellStore.isEmpty()) {
                         throw new RuntimeException("Sucursal es requerido");
                     }
-                    Long storeId = migrationFeign.findStoreByCode(bearerToken, cellStore).getData().getId();
+                    Long storeId = storeCache.computeIfAbsent(cellStore, code -> migrationFeign.findStoreByCode(bearerToken, code).getData().getId());
                     workPositionRequest.setStoreId(storeId);
 
                     String costCenter = getCellValueAsString(row.getCell(5));
                     Long costCenterId = null;
                     if(costCenter != null && !costCenter.isEmpty()) {
-                        costCenterId = migrationFeign.findCostCenterByCode(bearerToken, costCenter).getData().getId();
+                        costCenterId = costCenterCache.computeIfAbsent(costCenter, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
                     }
                     workPositionRequest.setCostCenterId(costCenterId);
+
                     Cell cellStatus = row.getCell(6);
                     long statusId = getStatusId(cellStatus);
                     workPositionRequest.setStatusId(statusId);
@@ -1181,59 +1214,11 @@ public class MigrationService {
                     String cellArea = getCellValueAsString(row.getCell(7));
                     String cellSubarea = getCellValueAsString(row.getCell(8));
                     String cellDepartamento = getCellValueAsString(row.getCell(9));
-                    Long storeOrganizativeId = null;
 
                     if(cellArea == null || cellArea.isEmpty()) throw new RuntimeException("Area es requerida");
 
-                    DefaultResponse<StoreDetailResponse> storeDetailResponse = migrationFeign.findAllStoresDetails(bearerToken, storeId);
-                    //Obtener las estructuras organizativas de la sucursal cuya area sea igual a cellArea
-                    String area = migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea).getData().getName();
-                    List<OrgEntDetailResponse> areasFiltradas = storeDetailResponse.getData().getStructuresByType().stream()
-                            .flatMap(structureType -> structureType.getDetails().stream())
-                            .filter(detail -> detail.getStructures().stream().anyMatch(structure -> area.equalsIgnoreCase(structure.getName()) && structure.getOrgEntity().getId() == 5L))
-                            .toList();
-                    //Si la lista es vacia es porque ninguna de las estructuras organizativas de la sucursal tiene esa area
-                    if (areasFiltradas.isEmpty()) throw new RuntimeException("Area ".concat(cellArea).concat(" no encontrada. Debe coincidir con la estructura de la sucursal."));
-
-                    if (cellSubarea != null && !cellSubarea.isEmpty()) {
-                        //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas tienen el subarea
-                        String subArea = migrationFeign.findOrgEntityDetailByName(bearerToken, 6L, cellSubarea).getData().getName();
-                        List<OrgEntDetailResponse> areasFiltradasConSubarea = areasFiltradas.stream()
-                                .filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() != null && !structure.getChildren().isEmpty() && structure.getChildren().get(0) != null && structure.getChildren().stream().anyMatch(child -> subArea.equalsIgnoreCase(child.getName()) && child.getOrgEntity().getId() == 6L)))
-                                .toList();
-                        //Si la lista es vacia es porque ninguna de las estructuras organizativas de la sucursal tiene esa subarea
-                        if (areasFiltradasConSubarea.isEmpty()) throw new RuntimeException("Subarea ".concat(cellSubarea).concat(" no encontrada. Debe coincidir con la estructura de la sucursal."));
-
-                        if (cellDepartamento != null && !cellDepartamento.isEmpty()) {
-                            //Una vez encontradas las estructuras organizativas que tienen ese area-subarea, buscar cual de ellas tienen el departamento
-                            String departamento = migrationFeign.findOrgEntityDetailByName(bearerToken, 7L, cellDepartamento).getData().getName();
-                            Optional<OrgEntDetailResponse> areaConSubareaYDepartamento = areasFiltradasConSubarea.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() != null && !structure.getChildren().isEmpty() && structure.getChildren().get(0) != null && structure.getChildren().stream().anyMatch(child -> subArea.equalsIgnoreCase(child.getName()) && child.getOrgEntity().getId() == 6L && child.getChildren().stream().anyMatch(child2 -> child2.getName().equalsIgnoreCase(departamento) && child2.getOrgEntity().getId() == 7L))))
-                                    .findFirst();
-
-                            //Si el optional es vacio es porque ningun area-subarea tiene ese departamento
-                            if (areaConSubareaYDepartamento.isEmpty()) throw new RuntimeException("Departamento ".concat(cellDepartamento).concat(" no encontrado. Debe coincidir con la estructura de la sucursal"));
-                            storeOrganizativeId = areaConSubareaYDepartamento.get().getId();
-                        }
-                        else {
-                            //Una vez encontradas las estructuras organizativas que tienen ese area-subarea, buscar cual de ellas no tiene departamento
-                            Optional<OrgEntDetailResponse> areaConSubareaSinDepartamento = areasFiltradasConSubarea.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren().stream().anyMatch(child -> child.getChildren() == null || child.getChildren().isEmpty() || child.getChildren().get(0) == null)))
-                                    .findFirst();
-                            //Si el optional es vacio es porque todas las area-subarea tienen un departamento y se necesita que en el excel se envíe el departamento para buscarlo
-                            if(areaConSubareaSinDepartamento.isEmpty()) throw new RuntimeException("Departamento es requerido");
-                            storeOrganizativeId = areaConSubareaSinDepartamento.get().getId();
-                        }
-                    }
-                    else  {
-                        //Si el excel tiene un departamento y no tiene un subarea, entonces está mal la estructura, falta el subarea
-                        if(cellDepartamento != null && !cellDepartamento.isEmpty()) throw new RuntimeException("Subarea es requerida");
-
-                        //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas no tiene subarea
-                        Optional<OrgEntDetailResponse> areaSinSubarea = areasFiltradas.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() == null || structure.getChildren().isEmpty() || structure.getChildren().get(0) == null))
-                                .findFirst();
-                        //Si el optional es vacio es porque todas las areas tienen un subarea y se necesita que en el excel se envíe el subarea para buscarlo
-                        if(areaSinSubarea.isEmpty()) throw new RuntimeException("Subarea es requerida");
-                        storeOrganizativeId = areaSinSubarea.get().getId();
-                    }
+                    String keyStructure = cellArea + "-" + cellSubarea + "-" + cellDepartamento;
+                    Long storeOrganizativeId = organizativeStructureCache.computeIfAbsent(keyStructure, key -> getStoreOrganizativeId(bearerToken, storeId, storeDetailsCache, orgEntityCache, cellArea, cellSubarea, cellDepartamento));
                     workPositionRequest.setStoreOrganizativeId(storeOrganizativeId);
 
                     fieldValues.forEach((nameColumn, position) -> {
@@ -1302,6 +1287,9 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("cargo");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> workPositionCache = new ConcurrentHashMap<>();
+            Map<String, Long> compCategoryCache = new ConcurrentHashMap<>();
+            Map<String, Long> compTabCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -1311,21 +1299,32 @@ public class MigrationService {
                     if(cellCode.isEmpty()) {
                         throw new RuntimeException("Codigo es requerido");
                     }
-                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, cellCode).getData().getWorkPosition().getId();
+                    Long workPositionId = workPositionCache.computeIfAbsent(cellCode, code ->
+                            migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition().getId()
+                    );
+
                     String compCategory = getCellValueAsString(row.getCell(10));
                     Long compCategoryId = null;
                     if(compCategory != null && !compCategory.isEmpty()){
-                        compCategoryId = migrationFeign.findCompCategoryByCode(bearerToken, compCategory).getData().getId();
+                        compCategoryId = compCategoryCache.computeIfAbsent(compCategory, category ->
+                                migrationFeign.findCompCategoryByCode(bearerToken, category).getData().getId()
+                        );
                     }
+
                     String compTab = getCellValueAsString(row.getCell(11));
                     Long compTabId = null;
                     if(compTab != null && !compTab.isEmpty()){
-                        compTabId = migrationFeign.findCompTabByCode(bearerToken, compTab).getData().getId();
+                        compTabId = compTabCache.computeIfAbsent(compTab, tab ->
+                                migrationFeign.findCompTabByCode(bearerToken, tab).getData().getId()
+                        );
                     }
+
                     String managerWorkPosition = getCellValueAsString(row.getCell(12));
                     Long managerWorkPositionId = null;
                     if(managerWorkPosition != null && !managerWorkPosition.isEmpty()){
-                        managerWorkPositionId = migrationFeign.findWorkPositionByCode(bearerToken, managerWorkPosition).getData().getWorkPosition().getId();
+                        managerWorkPositionId = workPositionCache.computeIfAbsent(managerWorkPosition, code ->
+                                migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition().getId()
+                        );
                     }
 
                     Long authorizedSalary = row.getCell(13) != null && row.getCell(13).getNumericCellValue() != 0 ? Math.round(row.getCell(13).getNumericCellValue()) : null;
@@ -1375,6 +1374,7 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("empleados");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> workPositionCache = new ConcurrentHashMap<>();
             Map<String, CountryResponse> countriesCache = migrationFeign.findAll(bearerToken).getData().stream()
                     .collect(Collectors.toMap(
                             country -> country.getName().toLowerCase(), // Convertir a minúsculas para normalizar
@@ -1518,7 +1518,9 @@ public class MigrationService {
                     if(cellWorkPosition.isEmpty()) {
                         throw new RuntimeException("Cargo es requerido");
                     }
-                    Long workPositionId = migrationFeign.findWorkPositionByCode(bearerToken, cellWorkPosition).getData().getWorkPosition().getId();
+                    Long workPositionId = workPositionCache.computeIfAbsent(cellWorkPosition, code ->
+                            migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition().getId()
+                    );
 
                     profileRequest.setWorkPositionId(workPositionId);
                     migrationFeign.createProfile(bearerToken, profileRequest);
@@ -1557,6 +1559,7 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("referencias");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<String, Long> profilesCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
             for (int i = 1; i < numberOfRows; i++) {
@@ -1567,7 +1570,9 @@ public class MigrationService {
                     if(clave.isEmpty()){
                         throw new RuntimeException("Clave MPRO es requerida");
                     }
-                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
+                    Long profileId = profilesCache.computeIfAbsent(clave, code ->
+                            migrationFeign.findProfileByClaveMpro(bearerToken, code).getData().getId()
+                    );
 
                     ProfileSecValueRequest references = new ProfileSecValueRequest();
                     references.setKeyword("PSRF16");
@@ -2174,8 +2179,14 @@ public class MigrationService {
 
     private void catchUnexpectedExceptions(Exception e) {
         if (e instanceof FeignException e1) {
-            if (e1.status() == 503){
+            if (e1.status() == 503) {
                 throw new ServiceUnavailableException("An error occurred while communicating with the core organization service");
+            }
+            if (e1.status() == 401) {
+                throw new UnauthorizedException("Does not contain the module permissions");
+            }
+            if (e1.status() == 403) {
+                throw new ForbbidenException("Usuario inválido");
             }
             throw new RuntimeException(e.getMessage());
         }
@@ -2194,5 +2205,74 @@ public class MigrationService {
         }
         DataFormatter dataFormatter = new DataFormatter();
         return dataFormatter.formatCellValue(cell);
+    }
+
+    private Long getStoreOrganizativeId(String bearerToken, Long storeId, Map<Long, DefaultResponse<StoreDetailResponse>> storeDetailsCache, Map<String, String> orgEntityCache, String cellArea, String cellSubarea, String cellDepartamento) {
+        Long storeOrganizativeId;
+        DefaultResponse<StoreDetailResponse> storeDetailResponse = getStoreDetails(bearerToken, storeId, storeDetailsCache);
+        //Obtener las estructuras organizativas de la sucursal cuya area sea igual a cellArea
+        String area = getOrgEntityDetailName(bearerToken, 5L, cellArea, orgEntityCache);
+        List<OrgEntDetailResponse> areasFiltradas = storeDetailResponse.getData().getStructuresByType().stream()
+                .flatMap(structureType -> structureType.getDetails().stream())
+                .filter(detail -> detail.getStructures().stream().anyMatch(structure -> area.equalsIgnoreCase(structure.getName()) && structure.getOrgEntity().getId() == 5L))
+                .toList();
+        //Si la lista es vacia es porque ninguna de las estructuras organizativas de la sucursal tiene esa area
+        if (areasFiltradas.isEmpty()) throw new RuntimeException("Area ".concat(cellArea).concat(" no encontrada. Debe coincidir con la estructura de la sucursal."));
+
+        if (cellSubarea != null && !cellSubarea.isEmpty()) {
+            //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas tienen el subarea
+            String subArea = getOrgEntityDetailName(bearerToken, 6L, cellSubarea, orgEntityCache);
+            List<OrgEntDetailResponse> areasFiltradasConSubarea = areasFiltradas.stream()
+                    .filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() != null && !structure.getChildren().isEmpty() && structure.getChildren().get(0) != null && structure.getChildren().stream().anyMatch(child -> subArea.equalsIgnoreCase(child.getName()) && child.getOrgEntity().getId() == 6L)))
+                    .toList();
+            //Si la lista es vacia es porque ninguna de las estructuras organizativas de la sucursal tiene esa subarea
+            if (areasFiltradasConSubarea.isEmpty()) throw new RuntimeException("Subarea ".concat(cellSubarea).concat(" no encontrada. Debe coincidir con la estructura de la sucursal."));
+
+            if (cellDepartamento != null && !cellDepartamento.isEmpty()) {
+                //Una vez encontradas las estructuras organizativas que tienen ese area-subarea, buscar cual de ellas tienen el departamento
+                String departamento = getOrgEntityDetailName(bearerToken, 7L, cellDepartamento, orgEntityCache);
+                Optional<OrgEntDetailResponse> areaConSubareaYDepartamento = areasFiltradasConSubarea.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() != null && !structure.getChildren().isEmpty() && structure.getChildren().get(0) != null && structure.getChildren().stream().anyMatch(child -> subArea.equalsIgnoreCase(child.getName()) && child.getOrgEntity().getId() == 6L && child.getChildren().stream().anyMatch(child2 -> child2.getName().equalsIgnoreCase(departamento) && child2.getOrgEntity().getId() == 7L))))
+                        .findFirst();
+
+                //Si el optional es vacio es porque ningun area-subarea tiene ese departamento
+                if (areaConSubareaYDepartamento.isEmpty()) throw new RuntimeException("Departamento ".concat(cellDepartamento).concat(" no encontrado. Debe coincidir con la estructura de la sucursal"));
+                storeOrganizativeId = areaConSubareaYDepartamento.get().getId();
+            }
+            else {
+                //Una vez encontradas las estructuras organizativas que tienen ese area-subarea, buscar cual de ellas no tiene departamento
+                Optional<OrgEntDetailResponse> areaConSubareaSinDepartamento = areasFiltradasConSubarea.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren().stream().anyMatch(child -> child.getChildren() == null || child.getChildren().isEmpty() || child.getChildren().get(0) == null)))
+                        .findFirst();
+                //Si el optional es vacio es porque todas las area-subarea tienen un departamento y se necesita que en el excel se envíe el departamento para buscarlo
+                if(areaConSubareaSinDepartamento.isEmpty()) throw new RuntimeException("Departamento es requerido");
+                storeOrganizativeId = areaConSubareaSinDepartamento.get().getId();
+            }
+        }
+        else  {
+            //Si el excel tiene un departamento y no tiene un subarea, entonces está mal la estructura, falta el subarea
+            if(cellDepartamento != null && !cellDepartamento.isEmpty()) throw new RuntimeException("Subarea es requerida");
+
+            //Una vez encontradas las estructuras organizativas que tienen ese area, buscar cual de ellas no tiene subarea
+            Optional<OrgEntDetailResponse> areaSinSubarea = areasFiltradas.stream().filter(detail -> detail.getStructures().stream().anyMatch(structure -> structure.getChildren() == null || structure.getChildren().isEmpty() || structure.getChildren().get(0) == null))
+                    .findFirst();
+            //Si el optional es vacio es porque todas las areas tienen un subarea y se necesita que en el excel se envíe el subarea para buscarlo
+            if(areaSinSubarea.isEmpty()) throw new RuntimeException("Subarea es requerida");
+            storeOrganizativeId = areaSinSubarea.get().getId();
+        }
+        return storeOrganizativeId;
+    }
+
+    public DefaultResponse<StoreDetailResponse> getStoreDetails(String token, Long storeId, Map<Long, DefaultResponse<StoreDetailResponse>> storeDetailsCache) {
+        if (!storeDetailsCache.containsKey(storeId)) {
+            storeDetailsCache.put(storeId, migrationFeign.findAllStoresDetails(token, storeId));
+        }
+        return storeDetailsCache.get(storeId);
+    }
+
+    private String getOrgEntityDetailName(String token, Long entityId, String name, Map<String, String> orgEntityCache) {
+        String cacheKey = entityId + "-" + name;
+        if (!orgEntityCache.containsKey(cacheKey)) {
+            orgEntityCache.put(cacheKey, migrationFeign.findOrgEntityDetailByName(token, entityId, name).getData().getName());
+        }
+        return orgEntityCache.get(cacheKey);
     }
 }
