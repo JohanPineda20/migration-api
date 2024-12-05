@@ -166,6 +166,14 @@ public class MigrationController {
 
     }
 
+    @PostMapping("profiles-activation")
+    public Map<String, Object> profilesDraftActivation(@RequestPart(value = "file") MultipartFile file,
+                                                   HttpServletRequest request){
+        UtilResponse utilResponse = migrationService.profilesDraftActivation(file, request.getHeader("Authorization"));
+        return processFile(utilResponse);
+
+    }
+
     @PostMapping("info-sueldos")
     public Map<String, Object> migrateInfoSueldos(@RequestPart(value = "file") MultipartFile file,
                                                    HttpServletRequest request){

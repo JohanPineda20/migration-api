@@ -10,3 +10,9 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 20000
+        readTimeout: 90000

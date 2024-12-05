@@ -86,6 +86,10 @@ public interface MigrationFeign {
                                             @PathVariable Long profileId,
                                             @RequestBody ProfileSecValueRequest profileSecValueRequest);
 
+    @PostMapping("/profile/{profileId}/profile-activation")
+    void profileDraftActivation(@RequestHeader("Authorization") String token,
+                                @PathVariable Long profileId);
+
 
 
     @GetMapping("/store")

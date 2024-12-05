@@ -9,4 +9,6 @@ public class WorkPositionResponse {
     private Long id;
     private String code;
     private String denomination;
+    private TabsResponse compTab;
+    private CompCategoriesResponse compCategory;
 }

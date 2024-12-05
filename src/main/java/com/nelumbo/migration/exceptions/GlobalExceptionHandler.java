@@ -133,7 +133,7 @@ public class GlobalExceptionHandler {
         ErrorResponse errorResponse = new ErrorResponse();
         errorResponse.setErrors(new ErrorDetailResponse(VALIDATION_EXCEPTION_CODE, VALIDATION_EXCEPTION,
                 Collections.singletonList(e.getMessage())));
-        log.error("Error processing Excel file: {}", e.getMessage());
+        log.error("Error processing Excel file: {}", e.getMessage() + " - " + e.getClass().getName());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
 }

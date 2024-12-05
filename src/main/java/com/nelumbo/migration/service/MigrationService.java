@@ -41,8 +41,8 @@ public class MigrationService {
 
     public UtilResponse migrateEmpresa(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -50,6 +50,7 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 1; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -57,61 +58,82 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
-                    Cell cellName = row.getCell(0);
-                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
-                    }
-                    orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    fieldValues.forEach((name, position) -> {
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
+                        Cell cellName = row.getCell(0);
+                        if (cellName == null || cellName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
                         }
-                    });
+                        orgEntityDetailRequest.setName(cellName.getStringCellValue());
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
 
-                    migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 1L);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 1L);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 1, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empresa: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empresa: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet empresa: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet empresa: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateRegion(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -120,6 +142,7 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -127,70 +150,91 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
-                    Cell cellName = row.getCell(0);
-                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
-                    }
-                    orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    String cellEmpresa = getCellValueAsString(row.getCell(1));
-                    if(cellEmpresa.isEmpty()) {
-                        throw new RuntimeException("Empresa es requerido");
-                    }
-                    Long parentId = parentIdCache.computeIfAbsent(cellEmpresa, empresa ->
-                            migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, empresa).getData().getId()
-                    );
-                    orgEntityDetailRequest.setParentId(parentId);
-
-                    fieldValues.forEach((name, position) ->{
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
+                        Cell cellName = row.getCell(0);
+                        if (cellName == null || cellName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
                         }
-                    });
+                        orgEntityDetailRequest.setName(cellName.getStringCellValue());
+                        String cellEmpresa = getCellValueAsString(row.getCell(1));
+                        if (cellEmpresa.isEmpty()) {
+                            throw new RuntimeException("Empresa es requerido");
+                        }
+                        Long parentId = parentIdCache.computeIfAbsent(cellEmpresa, empresa ->
+                                migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, empresa).getData().getId()
+                        );
+                        orgEntityDetailRequest.setParentId(parentId);
 
-                    migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 2L);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
+
+                        migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 2L);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 1, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet regiones: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet regiones: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet regiones: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateDivision(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -199,6 +243,7 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -206,70 +251,91 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
-                    Cell cellName = row.getCell(0);
-                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
-                    }
-                    orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    String cellRegion = getCellValueAsString(row.getCell(1));
-                    if(cellRegion.isEmpty()) {
-                        throw new RuntimeException("Region es requerido");
-                    }
-                    Long parentId = parentIdCache.computeIfAbsent(cellRegion, region ->
-                            migrationFeign.findOrgEntityDetailByName(bearerToken, 2L, region).getData().getId()
-                    );
-                    orgEntityDetailRequest.setParentId(parentId);
-
-                    fieldValues.forEach((name, position) ->{
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
+                        Cell cellName = row.getCell(0);
+                        if (cellName == null || cellName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
                         }
-                    });
+                        orgEntityDetailRequest.setName(cellName.getStringCellValue());
+                        String cellRegion = getCellValueAsString(row.getCell(1));
+                        if (cellRegion.isEmpty()) {
+                            throw new RuntimeException("Region es requerido");
+                        }
+                        Long parentId = parentIdCache.computeIfAbsent(cellRegion, region ->
+                                migrationFeign.findOrgEntityDetailByName(bearerToken, 2L, region).getData().getId()
+                        );
+                        orgEntityDetailRequest.setParentId(parentId);
 
-                    migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 3L);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
+
+                        migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 3L);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 1, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet divisiones: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet divisiones: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet divisiones: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet divisiones: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateZona(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -278,6 +344,7 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -285,76 +352,97 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
-                    Cell cellName = row.getCell(0);
-                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
-                    }
-                    orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    String cellDivision = getCellValueAsString(row.getCell(1));
-                    if(cellDivision.isEmpty()) {
-                        throw new RuntimeException("Division es requerido");
-                    }
-                    Long parentId = parentIdCache.computeIfAbsent(cellDivision, division ->
-                            migrationFeign.findOrgEntityDetailByName(bearerToken, 3L, division).getData().getId()
-                    );
-                    orgEntityDetailRequest.setParentId(parentId);
-
-                    fieldValues.forEach((name, position) ->{
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
+                        Cell cellName = row.getCell(0);
+                        if (cellName == null || cellName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
                         }
-                    });
+                        orgEntityDetailRequest.setName(cellName.getStringCellValue());
+                        String cellDivision = getCellValueAsString(row.getCell(1));
+                        if (cellDivision.isEmpty()) {
+                            throw new RuntimeException("Division es requerido");
+                        }
+                        Long parentId = parentIdCache.computeIfAbsent(cellDivision, division ->
+                                migrationFeign.findOrgEntityDetailByName(bearerToken, 3L, division).getData().getId()
+                        );
+                        orgEntityDetailRequest.setParentId(parentId);
 
-                    migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 4L);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
+
+                        migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 4L);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 1, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet zonas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet zonas: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet zonas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet zonas: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+                try {
+                    for (Future<?> future : futures) {
+                        future.get();
+                    }
+                } catch (ExecutionException ee) {
+                    Throwable cause = ee.getCause();
+                    if (cause instanceof FeignException) {
+                        reThrowFeignException((Exception) cause);
+                    } else {
+                        catchUnexpectedExceptions((Exception) cause);
+                    }
+                } finally {
+                    executor.shutdown();
+                }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateArea(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("áreas");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
@@ -363,61 +451,82 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
-                    Cell cellName = row.getCell(0);
-                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
-                    }
-                    orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    fieldValues.forEach((name, position) ->{
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
+                        Cell cellName = row.getCell(0);
+                        if (cellName == null || cellName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
                         }
-                    });
+                        orgEntityDetailRequest.setName(cellName.getStringCellValue());
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
 
-                    migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 5L);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 5L);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 1, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet áreas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet áreas: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet áreas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet áreas: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateSubarea(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -426,6 +535,7 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -433,70 +543,91 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
-                    Cell cellName = row.getCell(0);
-                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
-                    }
-                    orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    String cellArea = getCellValueAsString(row.getCell(1));
-                    if(cellArea.isEmpty()) {
-                        throw new RuntimeException("Area es requerida");
-                    }
-                    Long parentId = parentIdCache.computeIfAbsent(cellArea, area ->
-                            migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, area).getData().getId()
-                    );
-                    orgEntityDetailRequest.setParentId(parentId);
-
-                    fieldValues.forEach((name, position) ->{
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
+                        Cell cellName = row.getCell(0);
+                        if (cellName == null || cellName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
                         }
-                    });
+                        orgEntityDetailRequest.setName(cellName.getStringCellValue());
+                        String cellArea = getCellValueAsString(row.getCell(1));
+                        if (cellArea.isEmpty()) {
+                            throw new RuntimeException("Area es requerida");
+                        }
+                        Long parentId = parentIdCache.computeIfAbsent(cellArea, area ->
+                                migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, area).getData().getId()
+                        );
+                        orgEntityDetailRequest.setParentId(parentId);
 
-                    migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 6L);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
+
+                        migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 6L);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 1, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet subareas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet subareas: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet subareas: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet subareas: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateDepartamento(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -505,6 +636,7 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<String, Long> parentIdCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
             for(int i = 2; i < rowEncabezados.getPhysicalNumberOfCells(); i++) {
@@ -512,70 +644,91 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
-                    Cell cellName = row.getCell(0);
-                    if(cellName == null || cellName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
-                    }
-                    orgEntityDetailRequest.setName(cellName.getStringCellValue());
-                    String cellSubarea = getCellValueAsString(row.getCell(1));
-                    if(cellSubarea.isEmpty()) {
-                        throw new RuntimeException("Subarea es requerida");
-                    }
-                    Long parentId = parentIdCache.computeIfAbsent(cellSubarea, subarea ->
-                            migrationFeign.findOrgEntityDetailByName(bearerToken, 6L, subarea).getData().getId()
-                    );
-                    orgEntityDetailRequest.setParentId(parentId);
-
-                    fieldValues.forEach((name, position) ->{
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        OrgEntityDetailRequest orgEntityDetailRequest = new OrgEntityDetailRequest();
+                        Cell cellName = row.getCell(0);
+                        if (cellName == null || cellName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
                         }
-                    });
+                        orgEntityDetailRequest.setName(cellName.getStringCellValue());
+                        String cellSubarea = getCellValueAsString(row.getCell(1));
+                        if (cellSubarea.isEmpty()) {
+                            throw new RuntimeException("Subarea es requerida");
+                        }
+                        Long parentId = parentIdCache.computeIfAbsent(cellSubarea, subarea ->
+                                migrationFeign.findOrgEntityDetailByName(bearerToken, 6L, subarea).getData().getId()
+                        );
+                        orgEntityDetailRequest.setParentId(parentId);
 
-                    migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 7L);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 1);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                orgEntityDetailRequest.getFieldValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
+
+                        migrationFeign.createOrgEntityDetail(bearerToken, orgEntityDetailRequest, 7L);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.getAndIncrement();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 1, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet departamentos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet departamentos: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet departamentos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet departamentos: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateCostCenters(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -589,6 +742,7 @@ public class MigrationService {
                     ));
             Map<Long, Map<String, Long>> statesCache = new ConcurrentHashMap<>();
             Map<Long, Map<Long, Map<String, Long>>> citiesCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<String, Integer> fieldValues = new HashMap<>();
             Row rowEncabezados = sheet.getRow(0);
@@ -597,111 +751,129 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    CostCenterRequest costCenterRequest = new CostCenterRequest();
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Codigo es requerido");
-                    }
-                    costCenterRequest.setCode(cellCode);
-                    Cell cellDenomination = row.getCell(1);
-                    if(cellDenomination == null || cellDenomination.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Denominacion es requerida");
-                    }
-                    costCenterRequest.setDenomination(cellDenomination.getStringCellValue());
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        CostCenterRequest costCenterRequest = new CostCenterRequest();
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Codigo es requerido");
+                        }
+                        costCenterRequest.setCode(cellCode);
+                        Cell cellDenomination = row.getCell(1);
+                        if (cellDenomination == null || cellDenomination.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Denominacion es requerida");
+                        }
+                        costCenterRequest.setDenomination(cellDenomination.getStringCellValue());
 
-                    String cellCountry = getCellValueAsString(row.getCell(2));
-                    if (cellCountry.isEmpty()) {
-                        throw new RuntimeException("Pais es requerido");
-                    }
-                    String cellState = getCellValueAsString(row.getCell(3));
-                    if (cellState.isEmpty()) {
-                        throw new RuntimeException("Estado es requerido");
-                    }
-                    String cellCity = getCellValueAsString(row.getCell(4));
-                    if (cellCity.isEmpty()) {
-                        throw new RuntimeException("Municipio es requerido");
-                    }
+                        String cellCountry = getCellValueAsString(row.getCell(2));
+                        if (cellCountry.isEmpty()) {
+                            throw new RuntimeException("Pais es requerido");
+                        }
+                        String cellState = getCellValueAsString(row.getCell(3));
+                        if (cellState.isEmpty()) {
+                            throw new RuntimeException("Estado es requerido");
+                        }
+                        String cellCity = getCellValueAsString(row.getCell(4));
+                        if (cellCity.isEmpty()) {
+                            throw new RuntimeException("Municipio es requerido");
+                        }
 
-                    Long countryId = countriesCache.get(cellCountry.toLowerCase());
-                    if (countryId == null) throw new RuntimeException("Pais no encontrado: " + cellCountry);
+                        Long countryId = countriesCache.get(cellCountry.toLowerCase());
+                        if (countryId == null) throw new RuntimeException("Pais no encontrado: " + cellCountry);
 
-                    synchronized (statesCache) {
                         statesCache.computeIfAbsent(countryId, id -> migrationFeign.findAllStatesByCountryId(bearerToken, id).getData().stream()
                                 .collect(Collectors.toMap(
                                         state -> state.getName().toLowerCase(), // Convertir a minúsculas
-                                        CountryResponse::getId
-                                )));
-                    }
+                                        CountryResponse::getId)));
 
-                    Long stateId = statesCache.get(countryId).get(cellState.toLowerCase());
-                    if (stateId == null) throw new RuntimeException("Estado no encontrado: " + cellState);
+                        Long stateId = statesCache.get(countryId).get(cellState.toLowerCase());
+                        if (stateId == null) throw new RuntimeException("Estado no encontrado: " + cellState);
 
-                    synchronized (citiesCache) {
-                        citiesCache.computeIfAbsent(countryId, id -> new HashMap<>())
-                                .computeIfAbsent(stateId, id -> migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId).getData().stream()
-                                        .collect(Collectors.toMap(
-                                                city -> city.getName().toLowerCase(), // Convertir a minúsculas
-                                                CountryResponse::getId
-                                        )));
-                    }
-                    Long cityId = citiesCache.get(countryId).get(stateId).get(cellCity.toLowerCase());
-                    if (cityId == null) throw new RuntimeException("Municipio no encontrado: " + cellCity);
-
-                    costCenterRequest.setCountryId(countryId);
-                    costCenterRequest.setStateId(stateId);
-                    costCenterRequest.setCityId(cityId);
-                    Cell cellStatus = row.getCell(5);
-                    long statusId = getStatusId(cellStatus);
-                    costCenterRequest.setStatusId(statusId);
-                    fieldValues.forEach((name, position) ->{
-                        Cell cell = row.getCell(position);
-                        if (cell != null) {
-                            costCenterRequest.getFieldsValues().put(name, getCellValueAsString(cell));
+                        synchronized (citiesCache) {
+                            citiesCache.computeIfAbsent(countryId, id -> new HashMap<>())
+                                    .computeIfAbsent(stateId, id -> migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId).getData().stream()
+                                            .collect(Collectors.toMap(
+                                                    city -> city.getName().toLowerCase(), // Convertir a minúsculas
+                                                    CountryResponse::getId
+                                            )));
                         }
-                    });
+                        Long cityId = citiesCache.get(countryId).get(stateId).get(cellCity.toLowerCase());
+                        if (cityId == null) throw new RuntimeException("Municipio no encontrado: " + cellCity);
 
-                    migrationFeign.createCostCenter(bearerToken, costCenterRequest);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        costCenterRequest.setCountryId(countryId);
+                        costCenterRequest.setStateId(stateId);
+                        costCenterRequest.setCityId(cityId);
+                        Cell cellStatus = row.getCell(5);
+                        long statusId = getStatusId(cellStatus);
+                        costCenterRequest.setStatusId(statusId);
+                        fieldValues.forEach((name, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell != null) {
+                                costCenterRequest.getFieldsValues().put(name, getCellValueAsString(cell));
+                            }
+                        });
+
+                        migrationFeign.createCostCenter(bearerToken, costCenterRequest);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet ceco: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet ceco: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateCostCentersOrgEntitiesGeographic(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("ceco_estructura_geografica");
@@ -709,105 +881,127 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             Map<String, Long> costCenterCache = new ConcurrentHashMap<>();
             Map<String, Long> entityCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Codigo del centro de costos es requerido");
-                    }
-                    Long costCenterId = costCenterCache.computeIfAbsent(cellCode, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
-
-                    CostCenterDetailRequest costCenterDetailRequest = new CostCenterDetailRequest();
-                    List<Long> orgEntityDetailIds = costCenterDetailRequest.getOrgEntityDetailIds();
-
-                    Long regionId = null;
-                    Long divisionId = null;
-                    Long zonaId = null;
-
-                    String cellEmpresa = getCellValueAsString(row.getCell(1));
-                    String cellRegion = getCellValueAsString(row.getCell(2));
-                    String cellDivision = getCellValueAsString(row.getCell(3));
-                    String cellZona = getCellValueAsString(row.getCell(4));
-
-                    if(cellEmpresa.isEmpty()) {
-                        throw new RuntimeException("Empresa es requerida");
-                    }
-                    String cacheKey = 1L + cellEmpresa;
-                    Long empresaId;
-                    if(entityCache.containsKey(cacheKey)) {
-                        empresaId = entityCache.get(cacheKey);
-                    } else {
-                        empresaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa).getData().getId();
-                        entityCache.put(cacheKey, empresaId);
-                    }
-                    orgEntityDetailIds.add(empresaId);
-                    if (cellRegion != null && !cellRegion.isEmpty() || cellDivision != null && !cellDivision.isEmpty() || cellZona != null && !cellZona.isEmpty()) {
-                        if (cellRegion != null && !cellRegion.isEmpty()) {
-                            regionId = getEntityId(bearerToken, cellRegion, 2L, empresaId, "region", entityCache);
-                            orgEntityDetailIds.add(regionId);
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Codigo del centro de costos es requerido");
                         }
+                        Long costCenterId = costCenterCache.computeIfAbsent(cellCode, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
 
-                        if (cellDivision != null && !cellDivision.isEmpty()) {
-                            if (regionId == null) {
-                                throw new RuntimeException("Region es requerido");
-                            }
-                            divisionId = getEntityId(bearerToken, cellDivision, 3L, regionId, "division", entityCache);
-                            orgEntityDetailIds.add(divisionId);
-                        }
+                        CostCenterDetailRequest costCenterDetailRequest = new CostCenterDetailRequest();
+                        List<Long> orgEntityDetailIds = costCenterDetailRequest.getOrgEntityDetailIds();
 
-                        if (cellZona != null && !cellZona.isEmpty()) {
-                            if (regionId == null) {
-                                throw new RuntimeException("Region y Division son requeridos");
-                            }
-                            if (divisionId == null) {
-                                throw new RuntimeException("Division es requerido");
-                            }
-                            zonaId = getEntityId(bearerToken, cellZona, 4L, divisionId, "zona", entityCache);
-                            orgEntityDetailIds.add(zonaId);
+                        Long regionId = null;
+                        Long divisionId = null;
+                        Long zonaId = null;
+
+                        String cellEmpresa = getCellValueAsString(row.getCell(1));
+                        String cellRegion = getCellValueAsString(row.getCell(2));
+                        String cellDivision = getCellValueAsString(row.getCell(3));
+                        String cellZona = getCellValueAsString(row.getCell(4));
+
+                        if (cellEmpresa.isEmpty()) {
+                            throw new RuntimeException("Empresa es requerida");
                         }
+                        String cacheKey = 1L + cellEmpresa;
+                        Long empresaId;
+                        if (entityCache.containsKey(cacheKey)) {
+                            empresaId = entityCache.get(cacheKey);
+                        } else {
+                            empresaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa).getData().getId();
+                            entityCache.put(cacheKey, empresaId);
+                        }
+                        orgEntityDetailIds.add(empresaId);
+                        if (cellRegion != null && !cellRegion.isEmpty() || cellDivision != null && !cellDivision.isEmpty() || cellZona != null && !cellZona.isEmpty()) {
+                            if (cellRegion != null && !cellRegion.isEmpty()) {
+                                regionId = getEntityId(bearerToken, cellRegion, 2L, empresaId, "region", entityCache);
+                                orgEntityDetailIds.add(regionId);
+                            }
+
+                            if (cellDivision != null && !cellDivision.isEmpty()) {
+                                if (regionId == null) {
+                                    throw new RuntimeException("Region es requerido");
+                                }
+                                divisionId = getEntityId(bearerToken, cellDivision, 3L, regionId, "division", entityCache);
+                                orgEntityDetailIds.add(divisionId);
+                            }
+
+                            if (cellZona != null && !cellZona.isEmpty()) {
+                                if (regionId == null) {
+                                    throw new RuntimeException("Region y Division son requeridos");
+                                }
+                                if (divisionId == null) {
+                                    throw new RuntimeException("Division es requerido");
+                                }
+                                zonaId = getEntityId(bearerToken, cellZona, 4L, divisionId, "zona", entityCache);
+                                orgEntityDetailIds.add(zonaId);
+                            }
+                        }
+                        migrationFeign.createCostCenterDetails(bearerToken, costCenterDetailRequest, costCenterId);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet ceco_estructura_geografica: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet ceco_estructura_geografica: " + e.getMessage());
                     }
-                    migrationFeign.createCostCenterDetails(bearerToken, costCenterDetailRequest, costCenterId);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_geografica: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_geografica: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateCostCentersOrgEntitiesOrganizative(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("ceco_estructura_organizativa");
@@ -815,93 +1009,114 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             Map<String, Long> costCenterCache = new ConcurrentHashMap<>();
             Map<String, Long> entityCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Codigo del centro de costos es requerido");
-                    }
-                    Long costCenterId = costCenterCache.computeIfAbsent(cellCode, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
-
-                    CostCenterDetailRequest costCenterDetailRequest = new CostCenterDetailRequest();
-                    List<Long> orgEntityDetailIds = costCenterDetailRequest.getOrgEntityDetailIds();
-
-                    String cellArea = getCellValueAsString(row.getCell(1));
-                    String cellSubArea = getCellValueAsString(row.getCell(2));
-                    String cellDepartamento = getCellValueAsString(row.getCell(3));
-
-                    Long subAreaId = null;
-                    Long departamentoId = null;
-
-                    if(cellArea.isEmpty()) {
-                        throw new RuntimeException("Area es requerida");
-                    }
-                    String cacheKey = 5L + cellArea;
-                    Long areaId;
-                    if(entityCache.containsKey(cacheKey)) {
-                        areaId = entityCache.get(cacheKey);
-                    } else {
-                        areaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea).getData().getId();
-                        entityCache.put(cacheKey, areaId);
-                    }
-                    orgEntityDetailIds.add(areaId);
-                    if (cellSubArea != null && !cellSubArea.isEmpty() || cellDepartamento != null && !cellDepartamento.isEmpty()) {
-                        if (cellSubArea != null && !cellSubArea.isEmpty()) {
-                            subAreaId = getEntityId(bearerToken, cellSubArea, 6L, areaId, "subarea", entityCache);
-                            orgEntityDetailIds.add(subAreaId);
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Codigo del centro de costos es requerido");
                         }
+                        Long costCenterId = costCenterCache.computeIfAbsent(cellCode, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
 
-                        if (cellDepartamento != null && !cellDepartamento.isEmpty()) {
-                            if (subAreaId == null) {
-                                throw new RuntimeException("Subarea es requerida");
+                        CostCenterDetailRequest costCenterDetailRequest = new CostCenterDetailRequest();
+                        List<Long> orgEntityDetailIds = costCenterDetailRequest.getOrgEntityDetailIds();
+
+                        String cellArea = getCellValueAsString(row.getCell(1));
+                        String cellSubArea = getCellValueAsString(row.getCell(2));
+                        String cellDepartamento = getCellValueAsString(row.getCell(3));
+
+                        Long subAreaId = null;
+                        Long departamentoId = null;
+
+                        if (cellArea.isEmpty()) {
+                            throw new RuntimeException("Area es requerida");
+                        }
+                        String cacheKey = 5L + cellArea;
+                        Long areaId;
+                        if (entityCache.containsKey(cacheKey)) {
+                            areaId = entityCache.get(cacheKey);
+                        } else {
+                            areaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea).getData().getId();
+                            entityCache.put(cacheKey, areaId);
+                        }
+                        orgEntityDetailIds.add(areaId);
+                        if (cellSubArea != null && !cellSubArea.isEmpty() || cellDepartamento != null && !cellDepartamento.isEmpty()) {
+                            if (cellSubArea != null && !cellSubArea.isEmpty()) {
+                                subAreaId = getEntityId(bearerToken, cellSubArea, 6L, areaId, "subarea", entityCache);
+                                orgEntityDetailIds.add(subAreaId);
                             }
-                            departamentoId = getEntityId(bearerToken, cellDepartamento, 7L, subAreaId, "departamento", entityCache);
-                            orgEntityDetailIds.add(departamentoId);
+
+                            if (cellDepartamento != null && !cellDepartamento.isEmpty()) {
+                                if (subAreaId == null) {
+                                    throw new RuntimeException("Subarea es requerida");
+                                }
+                                departamentoId = getEntityId(bearerToken, cellDepartamento, 7L, subAreaId, "departamento", entityCache);
+                                orgEntityDetailIds.add(departamentoId);
+                            }
                         }
+                        migrationFeign.createCostCenterDetails(bearerToken, costCenterDetailRequest, costCenterId);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet ceco_estructura_organizativa: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet ceco_estructura_organizativa: " + e.getMessage());
                     }
-                    migrationFeign.createCostCenterDetails(bearerToken, costCenterDetailRequest, costCenterId);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_organizativa: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet ceco_estructura_organizativa: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateStores(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -916,222 +1131,275 @@ public class MigrationService {
                     ));
             Map<Long, Map<String, Long>> statesCache = new ConcurrentHashMap<>();
             Map<Long, Map<Long, Map<String, Long>>> citiesCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    StoreRequest storeRequest = new StoreRequest();
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Centro es requerido");
-                    }
-                    storeRequest.setCode(cellCode);
-                    Cell denomination = row.getCell(1);
-                    if(denomination == null || denomination.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Denominacion es requerido");
-                    }
-                    storeRequest.setDenomination(denomination.getStringCellValue());
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        StoreRequest storeRequest = new StoreRequest();
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Centro es requerido");
+                        }
+                        storeRequest.setCode(cellCode);
+                        Cell denomination = row.getCell(1);
+                        if (denomination == null || denomination.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Denominacion es requerido");
+                        }
+                        storeRequest.setDenomination(denomination.getStringCellValue());
 
-                    String cellCountry = getCellValueAsString(row.getCell(2));
-                    if (cellCountry.isEmpty()) {
-                        throw new RuntimeException("Pais es requerido");
-                    }
-                    String cellState = getCellValueAsString(row.getCell(3));
-                    if (cellState.isEmpty()) {
-                        throw new RuntimeException("Estado es requerido");
-                    }
-                    String cellCity = getCellValueAsString(row.getCell(4));
-                    if (cellCity.isEmpty()) {
-                        throw new RuntimeException("Municipio es requerido");
-                    }
+                        String cellCountry = getCellValueAsString(row.getCell(2));
+                        if (cellCountry.isEmpty()) {
+                            throw new RuntimeException("Pais es requerido");
+                        }
+                        String cellState = getCellValueAsString(row.getCell(3));
+                        if (cellState.isEmpty()) {
+                            throw new RuntimeException("Estado es requerido");
+                        }
+                        String cellCity = getCellValueAsString(row.getCell(4));
+                        if (cellCity.isEmpty()) {
+                            throw new RuntimeException("Municipio es requerido");
+                        }
 
-                    Long countryId = countriesCache.get(cellCountry.toLowerCase());
-                    if (countryId == null) throw new RuntimeException("Pais no encontrado: " + cellCountry);
+                        Long countryId = countriesCache.get(cellCountry.toLowerCase());
+                        if (countryId == null) throw new RuntimeException("Pais no encontrado: " + cellCountry);
 
-                    synchronized (statesCache) {
+
                         statesCache.computeIfAbsent(countryId, id -> migrationFeign.findAllStatesByCountryId(bearerToken, id).getData().stream()
-                                .collect(Collectors.toMap(
-                                        state -> state.getName().toLowerCase(), // Convertir a minúsculas
-                                        CountryResponse::getId
-                                )));
-                    }
+                                    .collect(Collectors.toMap(
+                                            state -> state.getName().toLowerCase(), // Convertir a minúsculas
+                                            CountryResponse::getId)));
 
-                    Long stateId = statesCache.get(countryId).get(cellState.toLowerCase());
-                    if (stateId == null) throw new RuntimeException("Estado no encontrado: " + cellState);
+                        Long stateId = statesCache.get(countryId).get(cellState.toLowerCase());
+                        if (stateId == null) throw new RuntimeException("Estado no encontrado: " + cellState);
 
-                    synchronized (citiesCache) {
-                        citiesCache.computeIfAbsent(countryId, id -> new HashMap<>())
-                                .computeIfAbsent(stateId, id -> migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId).getData().stream()
-                                        .collect(Collectors.toMap(
-                                                city -> city.getName().toLowerCase(), // Convertir a minúsculas
-                                                CountryResponse::getId
-                                        )));
-                    }
-                    Long cityId = citiesCache.get(countryId).get(stateId).get(cellCity.toLowerCase());
-                    if (cityId == null) throw new RuntimeException("Municipio no encontrado: " + cellCity);
+                        synchronized (citiesCache) {
+                            citiesCache.computeIfAbsent(countryId, id -> new HashMap<>())
+                                    .computeIfAbsent(stateId, id -> migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, countryId, stateId).getData().stream()
+                                            .collect(Collectors.toMap(
+                                                    city -> city.getName().toLowerCase(), // Convertir a minúsculas
+                                                    CountryResponse::getId
+                                            )));
+                        }
+                        Long cityId = citiesCache.get(countryId).get(stateId).get(cellCity.toLowerCase());
+                        if (cityId == null) throw new RuntimeException("Municipio no encontrado: " + cellCity);
 
-                    storeRequest.setCountryId(countryId);
-                    storeRequest.setStateId(stateId);
-                    storeRequest.setCityId(cityId);
-                    storeRequest.setAddress(row.getCell(5) == null || row.getCell(5).getStringCellValue().isEmpty() ? "-" : row.getCell(5).getStringCellValue());
-                    storeRequest.setZipcode(row.getCell(6) != null ? String.valueOf((int) row.getCell(6).getNumericCellValue()) : "0");
-                    storeRequest.setLatitude(row.getCell(7) != null ? row.getCell(7).getNumericCellValue() : 0.0);
-                    storeRequest.setLongitude(row.getCell(8) != null ? row.getCell(8).getNumericCellValue() : 0.0);
-                    storeRequest.setGeorefDistance(row.getCell(9) != null ? (long) row.getCell(9).getNumericCellValue() : 0L);
-                    String costCenter = getCellValueAsString(row.getCell(10));
-                    Long costCenterId = null;
-                    if(costCenter != null && !costCenter.isEmpty()) {
-                        costCenterId = costCenterCache.computeIfAbsent(costCenter, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
+                        storeRequest.setCountryId(countryId);
+                        storeRequest.setStateId(stateId);
+                        storeRequest.setCityId(cityId);
+                        storeRequest.setAddress(row.getCell(5) == null || getCellValueAsString(row.getCell(5)).isBlank() ? "-" : row.getCell(5).getStringCellValue());
+                        storeRequest.setZipcode(row.getCell(6) == null || getCellValueAsString(row.getCell(6)).isBlank() ? "0" : String.valueOf((int) row.getCell(6).getNumericCellValue()));
+                        if (row.getCell(7) == null || getCellValueAsString(row.getCell(7)).isBlank()) {
+                            storeRequest.setLatitude(0.0);
+                        } else if (row.getCell(7).getCellType() == CellType.NUMERIC) {
+                            storeRequest.setLatitude(row.getCell(7).getNumericCellValue());
+                        } else {
+                            throw new RuntimeException("Latitud debe ser numérico");
+                        }
+                        if (row.getCell(8) == null || getCellValueAsString(row.getCell(8)).isBlank()) {
+                            storeRequest.setLongitude(0.0);
+                        } else if (row.getCell(8).getCellType() == CellType.NUMERIC) {
+                            storeRequest.setLongitude(row.getCell(8).getNumericCellValue());
+                        } else {
+                            throw new RuntimeException("Longitud debe ser numérico");
+                        }
+                        storeRequest.setGeorefDistance(row.getCell(9) == null || getCellValueAsString(row.getCell(9)).isBlank() ? 0L : (long) row.getCell(9).getNumericCellValue());
+                        String costCenter = getCellValueAsString(row.getCell(10));
+                        Long costCenterId = null;
+                        if (costCenter != null && !costCenter.isEmpty()) {
+                            costCenterId = costCenterCache.computeIfAbsent(costCenter, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
+                        }
+                        storeRequest.setCostCenterId(costCenterId);
+                        Cell cellStatus = row.getCell(11);
+                        long statusId = getStatusId(cellStatus);
+                        storeRequest.setStatusId(statusId);
+                        migrationFeign.createStore(bearerToken, storeRequest);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sucursales: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sucursales: " + e.getMessage());
                     }
-                    storeRequest.setCostCenterId(costCenterId);
-                    Cell cellStatus = row.getCell(11);
-                    long statusId = getStatusId(cellStatus);
-                    storeRequest.setStatusId(statusId);
-                    migrationFeign.createStore(bearerToken, storeRequest);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateStoresOrgEntitiesGeographic(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("sucursales");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             Map<String, Long> entityCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Centro es requerido");
-                    }
-                    Long storeId = migrationFeign.findStoreByCode(bearerToken, cellCode).getData().getId();
-
-                    StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
-                    List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
-
-                    Long regionId = null;
-                    Long divisionId = null;
-                    Long zonaId = null;
-
-                    String cellEmpresa = getCellValueAsString(row.getCell(12));
-                    String cellRegion = getCellValueAsString(row.getCell(13));
-                    String cellDivision = getCellValueAsString(row.getCell(14));
-                    String cellZona = getCellValueAsString(row.getCell(15));
-
-                    if(cellEmpresa.isEmpty()) {
-                        throw new RuntimeException("Empresa es requerida");
-                    }
-                    String cacheKey = 1L + cellEmpresa;
-                    Long empresaId;
-                    if(entityCache.containsKey(cacheKey)) {
-                        empresaId = entityCache.get(cacheKey);
-                    } else {
-                        empresaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa).getData().getId();
-                        entityCache.put(cacheKey, empresaId);
-                    }
-                    orgEntityDetailIds.add(empresaId);
-                    if (cellRegion != null && !cellRegion.isEmpty() || cellDivision != null && !cellDivision.isEmpty() || cellZona != null && !cellZona.isEmpty()) {
-                        if (cellRegion != null && !cellRegion.isEmpty()) {
-                            regionId = getEntityId(bearerToken, cellRegion, 2L, empresaId, "region", entityCache);
-                            orgEntityDetailIds.add(regionId);
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Centro es requerido");
                         }
+                        Long storeId = migrationFeign.findStoreByCode(bearerToken, cellCode).getData().getId();
 
-                        if (cellDivision != null && !cellDivision.isEmpty()) {
-                            if (regionId == null) {
-                                throw new RuntimeException("Region es requerido");
-                            }
-                            divisionId = getEntityId(bearerToken, cellDivision, 3L, regionId, "division", entityCache);
-                            orgEntityDetailIds.add(divisionId);
-                        }
+                        StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
+                        List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
 
-                        if (cellZona != null && !cellZona.isEmpty()) {
-                            if (regionId == null) {
-                                throw new RuntimeException("Region y Division son requeridos");
-                            }
-                            if (divisionId == null) {
-                                throw new RuntimeException("Division es requerido");
-                            }
-                            zonaId = getEntityId(bearerToken, cellZona, 4L, divisionId, "zona", entityCache);
-                            orgEntityDetailIds.add(zonaId);
+                        Long regionId = null;
+                        Long divisionId = null;
+                        Long zonaId = null;
+
+                        String cellEmpresa = getCellValueAsString(row.getCell(12));
+                        String cellRegion = getCellValueAsString(row.getCell(13));
+                        String cellDivision = getCellValueAsString(row.getCell(14));
+                        String cellZona = getCellValueAsString(row.getCell(15));
+
+                        if (cellEmpresa.isEmpty()) {
+                            throw new RuntimeException("Empresa es requerida");
                         }
+                        String cacheKey = 1L + cellEmpresa;
+                        Long empresaId;
+                        if (entityCache.containsKey(cacheKey)) {
+                            empresaId = entityCache.get(cacheKey);
+                        } else {
+                            empresaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 1L, cellEmpresa).getData().getId();
+                            entityCache.put(cacheKey, empresaId);
+                        }
+                        orgEntityDetailIds.add(empresaId);
+                        if (cellRegion != null && !cellRegion.isEmpty() || cellDivision != null && !cellDivision.isEmpty() || cellZona != null && !cellZona.isEmpty()) {
+                            if (cellRegion != null && !cellRegion.isEmpty()) {
+                                regionId = getEntityId(bearerToken, cellRegion, 2L, empresaId, "region", entityCache);
+                                orgEntityDetailIds.add(regionId);
+                            }
+
+                            if (cellDivision != null && !cellDivision.isEmpty()) {
+                                if (regionId == null) {
+                                    throw new RuntimeException("Region es requerido");
+                                }
+                                divisionId = getEntityId(bearerToken, cellDivision, 3L, regionId, "division", entityCache);
+                                orgEntityDetailIds.add(divisionId);
+                            }
+
+                            if (cellZona != null && !cellZona.isEmpty()) {
+                                if (regionId == null) {
+                                    throw new RuntimeException("Region y Division son requeridos");
+                                }
+                                if (divisionId == null) {
+                                    throw new RuntimeException("Division es requerido");
+                                }
+                                zonaId = getEntityId(bearerToken, cellZona, 4L, divisionId, "zona", entityCache);
+                                orgEntityDetailIds.add(zonaId);
+                            }
+                        }
+                        migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sucursales: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sucursales: " + e.getMessage());
                     }
-                    migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursales: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
     public UtilResponse migrateStoresOrgEntitiesOrganizative(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheet("sucursal_estructura_organizativ");
@@ -1139,86 +1407,108 @@ public class MigrationService {
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             Map<String, Long> storeCache = new ConcurrentHashMap<>();
             Map<String, Long> entityCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Centro de sucursal es requerido");
-                    }
-                    Long storeId = storeCache.computeIfAbsent(cellCode, code -> migrationFeign.findStoreByCode(bearerToken, code).getData().getId());
-
-                    StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
-                    List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
-
-                    String cellArea = getCellValueAsString(row.getCell(1));
-                    String cellSubArea = getCellValueAsString(row.getCell(2));
-                    String cellDepartamento = getCellValueAsString(row.getCell(3));
-
-                    Long subAreaId = null;
-                    Long departamentoId = null;
-
-                    if(cellArea.isEmpty()) {
-                        throw new RuntimeException("Area es requerida");
-                    }
-                    String cacheKey = 5L + cellArea;
-                    Long areaId;
-                    if(entityCache.containsKey(cacheKey)) {
-                        areaId = entityCache.get(cacheKey);
-                    } else {
-                        areaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea).getData().getId();
-                        entityCache.put(cacheKey, areaId);
-                    }
-                    orgEntityDetailIds.add(areaId);
-                    if (cellSubArea != null && !cellSubArea.isEmpty() || cellDepartamento != null && !cellDepartamento.isEmpty()) {
-                        if (cellSubArea != null && !cellSubArea.isEmpty()) {
-                            subAreaId = getEntityId(bearerToken, cellSubArea, 6L, areaId, "subarea", entityCache);
-                            orgEntityDetailIds.add(subAreaId);
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Centro de sucursal es requerido");
                         }
+                        Long storeId = storeCache.computeIfAbsent(cellCode, code -> migrationFeign.findStoreByCode(bearerToken, code).getData().getId());
 
-                        if (cellDepartamento != null && !cellDepartamento.isEmpty()) {
-                            if (subAreaId == null) {
-                                throw new RuntimeException("Subarea es requerida");
+                        StoreDetailRequest storeDetailRequest = new StoreDetailRequest();
+                        List<Long> orgEntityDetailIds = storeDetailRequest.getOrgEntityDetailIds();
+
+                        String cellArea = getCellValueAsString(row.getCell(1));
+                        String cellSubArea = getCellValueAsString(row.getCell(2));
+                        String cellDepartamento = getCellValueAsString(row.getCell(3));
+
+                        Long subAreaId = null;
+                        Long departamentoId = null;
+
+                        if (cellArea.isEmpty()) {
+                            throw new RuntimeException("Area es requerida");
+                        }
+                        String cacheKey = 5L + cellArea;
+                        Long areaId;
+                        if (entityCache.containsKey(cacheKey)) {
+                            areaId = entityCache.get(cacheKey);
+                        } else {
+                            areaId = migrationFeign.findOrgEntityDetailByName(bearerToken, 5L, cellArea).getData().getId();
+                            entityCache.put(cacheKey, areaId);
+                        }
+                        orgEntityDetailIds.add(areaId);
+                        if (cellSubArea != null && !cellSubArea.isEmpty() || cellDepartamento != null && !cellDepartamento.isEmpty()) {
+                            if (cellSubArea != null && !cellSubArea.isEmpty()) {
+                                subAreaId = getEntityId(bearerToken, cellSubArea, 6L, areaId, "subarea", entityCache);
+                                orgEntityDetailIds.add(subAreaId);
                             }
-                            departamentoId = getEntityId(bearerToken, cellDepartamento, 7L, subAreaId, "departamento", entityCache);
-                            orgEntityDetailIds.add(departamentoId);
+
+                            if (cellDepartamento != null && !cellDepartamento.isEmpty()) {
+                                if (subAreaId == null) {
+                                    throw new RuntimeException("Subarea es requerida");
+                                }
+                                departamentoId = getEntityId(bearerToken, cellDepartamento, 7L, subAreaId, "departamento", entityCache);
+                                orgEntityDetailIds.add(departamentoId);
+                            }
                         }
+                        migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sucursal_estructura_organizativ: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sucursal_estructura_organizativ: " + e.getMessage());
                     }
-                    migrationFeign.createStoreDetails(bearerToken, storeDetailRequest, storeId);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet sucursal_estructura_organizativ: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     private long getStatusId(Cell cellStatus) {
@@ -1257,8 +1547,8 @@ public class MigrationService {
 
     public UtilResponse migrateWorkPositions(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -1271,6 +1561,7 @@ public class MigrationService {
             Map<String, Long> organizativeStructureCache = new ConcurrentHashMap<>();
             Map<Long, DefaultResponse<StoreDetailResponse>> storeDetailsCache = new ConcurrentHashMap<>();
             Map<String, String> orgEntityCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
             Map<String, Integer> fieldValues = new HashMap<>();
@@ -1280,130 +1571,151 @@ public class MigrationService {
                 fieldValues.put(encabezado, i);
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    WorkPositionRequest workPositionRequest = new WorkPositionRequest();
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Codigo es requerido");
-                    }
-                    workPositionRequest.setCode(cellCode);
-                    Cell denomination = row.getCell(1);
-                    if(denomination == null || denomination.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Denominacion es requerido");
-                    }
-                    workPositionRequest.setDenomination(denomination.getStringCellValue());
-                    Cell authorizedStaff = row.getCell(2);
-                    if(authorizedStaff == null || authorizedStaff.getNumericCellValue() == 0){
-                        throw new RuntimeException("Plantilla autorizada es requerido");
-                    }
-                    workPositionRequest.setAuthorizedStaff((long)authorizedStaff.getNumericCellValue());
-
-                    String cellWorkPosCat = getCellValueAsString(row.getCell(3));
-                    if(cellWorkPosCat.isEmpty()) {
-                        throw new RuntimeException("Puesto es requerido");
-                    }
-                    Long workPosCatId = workPosCatCache.computeIfAbsent(cellWorkPosCat, code -> migrationFeign.findWorkPosCategoryByCode(bearerToken, code).getData().getId());
-                    workPositionRequest.setWorkPosCatId(workPosCatId);
-
-                    String cellStore = getCellValueAsString(row.getCell(4));
-                    if(cellStore.isEmpty()) {
-                        throw new RuntimeException("Sucursal es requerido");
-                    }
-                    Long storeId = storeCache.computeIfAbsent(cellStore, code -> migrationFeign.findStoreByCode(bearerToken, code).getData().getId());
-                    workPositionRequest.setStoreId(storeId);
-
-                    String costCenter = getCellValueAsString(row.getCell(5));
-                    Long costCenterId = null;
-                    if(costCenter != null && !costCenter.isEmpty()) {
-                        costCenterId = costCenterCache.computeIfAbsent(costCenter, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
-                    }
-                    workPositionRequest.setCostCenterId(costCenterId);
-
-                    Cell cellStatus = row.getCell(6);
-                    long statusId = getStatusId(cellStatus);
-                    workPositionRequest.setStatusId(statusId);
-
-                    String cellArea = getCellValueAsString(row.getCell(7));
-                    String cellSubarea = getCellValueAsString(row.getCell(8));
-                    String cellDepartamento = getCellValueAsString(row.getCell(9));
-
-                    if(cellArea == null || cellArea.isEmpty()) throw new RuntimeException("Area es requerida");
-
-                    String keyStructure = cellArea + "-" + cellSubarea + "-" + cellDepartamento;
-                    Long storeOrganizativeId = organizativeStructureCache.computeIfAbsent(keyStructure, key -> getStoreOrganizativeId(bearerToken, storeId, storeDetailsCache, orgEntityCache, cellArea, cellSubarea, cellDepartamento));
-                    workPositionRequest.setStoreOrganizativeId(storeOrganizativeId);
-
-                    fieldValues.forEach((nameColumn, position) -> {
-                        Cell cell = row.getCell(position);
-                        if (cell == null) {
-                            workPositionRequest.getFieldsValues().put(nameColumn, null);
-                        } else {
-                            switch (cell.getCellType()) {
-                                case STRING:
-                                    workPositionRequest.getFieldsValues().put(nameColumn, cell.getStringCellValue());
-                                    break;
-                                case NUMERIC:
-                                    if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
-                                        LocalDate formattedDate = cell.getDateCellValue().toInstant()
-                                                .atZone(ZoneId.systemDefault())
-                                                .toLocalDate();
-                                        DateTimeFormatter pattern = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-                                        workPositionRequest.getFieldsValues().put(nameColumn, formattedDate.format(pattern));
-                                    } else {
-                                        workPositionRequest.getFieldsValues().put(nameColumn, (long) cell.getNumericCellValue());
-                                    }
-                                    break;
-                                case BOOLEAN:
-                                    workPositionRequest.getFieldsValues().put(nameColumn, cell.getBooleanCellValue());
-                                    break;
-                                default:
-                                    workPositionRequest.getFieldsValues().put(nameColumn, null);
-                                    break;
-                            }
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        WorkPositionRequest workPositionRequest = new WorkPositionRequest();
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Codigo es requerido");
                         }
-                    });
+                        workPositionRequest.setCode(cellCode);
+                        Cell denomination = row.getCell(1);
+                        if (denomination == null || denomination.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Denominacion es requerido");
+                        }
+                        workPositionRequest.setDenomination(denomination.getStringCellValue());
+                        Cell authorizedStaff = row.getCell(2);
+                        if (authorizedStaff == null || authorizedStaff.getNumericCellValue() == 0) {
+                            throw new RuntimeException("Plantilla autorizada es requerido");
+                        }
+                        workPositionRequest.setAuthorizedStaff((long) authorizedStaff.getNumericCellValue());
 
-                    migrationFeign.createWorkPosition(bearerToken, workPositionRequest);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        String cellWorkPosCat = getCellValueAsString(row.getCell(3));
+                        if (cellWorkPosCat.isEmpty()) {
+                            throw new RuntimeException("Puesto es requerido");
+                        }
+                        Long workPosCatId = workPosCatCache.computeIfAbsent(cellWorkPosCat, code -> migrationFeign.findWorkPosCategoryByCode(bearerToken, code).getData().getId());
+                        workPositionRequest.setWorkPosCatId(workPosCatId);
+
+                        String cellStore = getCellValueAsString(row.getCell(4));
+                        if (cellStore.isEmpty()) {
+                            throw new RuntimeException("Sucursal es requerido");
+                        }
+                        Long storeId = storeCache.computeIfAbsent(cellStore, code -> migrationFeign.findStoreByCode(bearerToken, code).getData().getId());
+                        workPositionRequest.setStoreId(storeId);
+
+                        String costCenter = getCellValueAsString(row.getCell(5));
+                        Long costCenterId = null;
+                        if (costCenter != null && !costCenter.isEmpty()) {
+                            costCenterId = costCenterCache.computeIfAbsent(costCenter, code -> migrationFeign.findCostCenterByCode(bearerToken, code).getData().getId());
+                        }
+                        workPositionRequest.setCostCenterId(costCenterId);
+
+                        Cell cellStatus = row.getCell(6);
+                        long statusId = getStatusId(cellStatus);
+                        workPositionRequest.setStatusId(statusId);
+
+                        String cellArea = getCellValueAsString(row.getCell(7));
+                        String cellSubarea = getCellValueAsString(row.getCell(8));
+                        String cellDepartamento = getCellValueAsString(row.getCell(9));
+
+                        if (cellArea == null || cellArea.isEmpty()) throw new RuntimeException("Area es requerida");
+
+                        String keyStructure = storeId + "-" + cellArea + "-" + cellSubarea + "-" + cellDepartamento;
+                        Long storeOrganizativeId = organizativeStructureCache.computeIfAbsent(keyStructure, key -> getStoreOrganizativeId(bearerToken, storeId, storeDetailsCache, orgEntityCache, cellArea, cellSubarea, cellDepartamento));
+                        workPositionRequest.setStoreOrganizativeId(storeOrganizativeId);
+
+                        fieldValues.forEach((nameColumn, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell == null) {
+                                workPositionRequest.getFieldsValues().put(nameColumn, null);
+                            } else {
+                                switch (cell.getCellType()) {
+                                    case STRING:
+                                        workPositionRequest.getFieldsValues().put(nameColumn, cell.getStringCellValue());
+                                        break;
+                                    case NUMERIC:
+                                        if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+                                            LocalDate formattedDate = cell.getDateCellValue().toInstant()
+                                                    .atZone(ZoneId.systemDefault())
+                                                    .toLocalDate();
+                                            DateTimeFormatter pattern = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+                                            workPositionRequest.getFieldsValues().put(nameColumn, formattedDate.format(pattern));
+                                        } else {
+                                            workPositionRequest.getFieldsValues().put(nameColumn, (long) cell.getNumericCellValue());
+                                        }
+                                        break;
+                                    case BOOLEAN:
+                                        workPositionRequest.getFieldsValues().put(nameColumn, cell.getBooleanCellValue());
+                                        break;
+                                    default:
+                                        workPositionRequest.getFieldsValues().put(nameColumn, null);
+                                        break;
+                                }
+                            }
+                        });
+
+                        migrationFeign.createWorkPosition(bearerToken, workPositionRequest);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet cargo: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet cargo: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateWorkPositionsDetails(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -1413,46 +1725,51 @@ public class MigrationService {
             Map<String, Long> workPositionCache = new ConcurrentHashMap<>();
             Map<String, Long> compCategoryCache = new ConcurrentHashMap<>();
             Map<String, Long> compTabCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    String cellCode = getCellValueAsString(row.getCell(0));
-                    if(cellCode.isEmpty()) {
-                        throw new RuntimeException("Codigo es requerido");
-                    }
-                    Long workPositionId = workPositionCache.computeIfAbsent(cellCode, code ->
-                            migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition().getId()
-                    );
-
-                    String compCategory = getCellValueAsString(row.getCell(10));
-                    Long compCategoryId = null;
-                    if(compCategory != null && !compCategory.isEmpty()){
-                        compCategoryId = compCategoryCache.computeIfAbsent(compCategory, category ->
-                                migrationFeign.findCompCategoryByCode(bearerToken, category).getData().getId()
-                        );
-                    }
-
-                    String compTab = getCellValueAsString(row.getCell(11));
-                    Long compTabId = null;
-                    if(compTab != null && !compTab.isEmpty()){
-                        compTabId = compTabCache.computeIfAbsent(compTab, tab ->
-                                migrationFeign.findCompTabByCode(bearerToken, tab).getData().getId()
-                        );
-                    }
-
-                    String managerWorkPosition = getCellValueAsString(row.getCell(12));
-                    Long managerWorkPositionId = null;
-                    if(managerWorkPosition != null && !managerWorkPosition.isEmpty()){
-                        managerWorkPositionId = workPositionCache.computeIfAbsent(managerWorkPosition, code ->
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String cellCode = getCellValueAsString(row.getCell(0));
+                        if (cellCode.isEmpty()) {
+                            throw new RuntimeException("Codigo es requerido");
+                        }
+                        Long workPositionId = workPositionCache.computeIfAbsent(cellCode, code ->
                                 migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition().getId()
                         );
-                    }
 
-                    Long authorizedSalary = row.getCell(13) != null && row.getCell(13).getNumericCellValue() != 0 ? Math.round(row.getCell(13).getNumericCellValue()) : null;
+                        String compCategory = getCellValueAsString(row.getCell(10));
+                        if (compCategory.isEmpty()) {
+                            throw new RuntimeException("Categoria de puesto es requerido");
+                        }
+                        Long compCategoryId = compCategoryCache.computeIfAbsent(compCategory, category ->
+                                migrationFeign.findCompCategoryByCode(bearerToken, category).getData().getId()
+                        );
 
-                    if(!(compCategoryId == null && compTabId == null && managerWorkPositionId == null && authorizedSalary == null)){
+                        String compTab = getCellValueAsString(row.getCell(11));
+                        if (compTab.isEmpty()) {
+                            throw new RuntimeException("Tabulador es requerido");
+                        }
+                        Long compTabId = compTabCache.computeIfAbsent(compTab, tab ->
+                                migrationFeign.findCompTabByCode(bearerToken, tab).getData().getId()
+                        );
+
+                        String managerWorkPosition = getCellValueAsString(row.getCell(12));
+                        Long managerWorkPositionId = null;
+                        if (managerWorkPosition != null && !managerWorkPosition.isEmpty()) {
+                            managerWorkPositionId = workPositionCache.computeIfAbsent(managerWorkPosition, code ->
+                                    migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition().getId()
+                            );
+                        }
+
+                        Long authorizedSalary = row.getCell(13) != null && row.getCell(13).getNumericCellValue() != 0 ? Math.round(row.getCell(13).getNumericCellValue()) : 0;
+
                         WorkPositionUpdateRequest wPUReq = WorkPositionUpdateRequest.builder()
                                 .compCategoryId(compCategoryId)
                                 .compTabId(compTabId)
@@ -1462,50 +1779,66 @@ public class MigrationService {
                                 .build();
                         migrationFeign.updateWorkPosition(bearerToken, wPUReq, workPositionId);
                         row.getCell(0).setCellStyle(cellStyle);
-                        success++;
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet cargo: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet cargo: " + e.getMessage());
                     }
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet cargo: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateProfiles(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
             Sheet sheet = workbook.getSheet("empleados");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             Map<String, Long> workPositionCache = new ConcurrentHashMap<>();
             Map<String, CountryResponse> countriesCache = migrationFeign.findAll(bearerToken).getData().stream()
                     .collect(Collectors.toMap(
@@ -1517,183 +1850,211 @@ public class MigrationService {
             Map<Long, Map<Long, Map<String, CountryResponse>>> citiesCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    ProfileRequest profileRequest = new ProfileRequest();
-                    List<ProfileSecValueRequest> profileSecValueRequestList = new ArrayList<>();
-                    ProfileSecValueRequest informacionPersonal = new ProfileSecValueRequest();
-                    informacionPersonal.setKeyword("PSPI01");
-                    Map<String, Object> informacionPersonalValues = informacionPersonal.getFieldsValues();
-                    String clave = getCellValueAsString(row.getCell(0));
-                    if(clave.isEmpty()){
-                        throw new RuntimeException("Clave MPRO es requerida");
-                    }
-                    informacionPersonalValues.put("Clave MPRO", clave);
-                    Cell names = row.getCell(1);
-                    if (names == null || names.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombres es requerido");
-                    }
-                    informacionPersonalValues.put("Primer Nombre", names.getStringCellValue());
-                    Cell lastName = row.getCell(2);
-                    if (lastName == null || lastName.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Primer apellido es requerido");
-                    }
-                    informacionPersonalValues.put("Primer Apellido", lastName.getStringCellValue());
-                    informacionPersonalValues.put("Segundo Apellido", row.getCell(3) != null ? row.getCell(3).getStringCellValue() : "");
-                    Cell gender = row.getCell(4);
-                    if (gender == null || gender.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Sexo es requerido");
-                    }
-                    informacionPersonalValues.put("Sexo", gender.getStringCellValue());
-                    DateTimeFormatter formatters = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-                    //LocalDate.parse(row.getCell(9).getStringCellValue(), formatters);
-                    // row.getCell(9).getStringCellValue()
-                    if (row.getCell(9) != null && row.getCell(9).getCellType() == CellType.NUMERIC) {
-                        LocalDate hiredDate = row.getCell(9).getDateCellValue().toInstant()
-                                .atZone(ZoneId.systemDefault())
-                                .toLocalDate();
-                        informacionPersonalValues.put("Fecha de contratación", hiredDate.format(formatters));
-                    }
-                    ProfileSecValueRequest informacionBiografica = new ProfileSecValueRequest();
-                    informacionBiografica.setKeyword("PSBI02");
-                    Map<String, Object> informacionBiograficaValues = informacionBiografica.getFieldsValues();
-                    //LocalDate.parse(row.getCell(8).getStringCellValue(), formatters);
-                    //row.getCell(8).getStringCellValue()
-                    if (row.getCell(8) != null && row.getCell(8).getCellType() == CellType.NUMERIC) {
-                        LocalDate birthDate =  row.getCell(8).getDateCellValue().toInstant()
-                                .atZone(ZoneId.systemDefault())
-                                .toLocalDate();
-                        informacionBiograficaValues.put("Fecha de nacimiento", birthDate.format(formatters));
-                    }
+                int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        ProfileRequest profileRequest = new ProfileRequest();
+                        List<ProfileSecValueRequest> profileSecValueRequestList = new ArrayList<>();
+                        ProfileSecValueRequest informacionPersonal = new ProfileSecValueRequest();
+                        informacionPersonal.setKeyword("PSPI01");
+                        Map<String, Object> informacionPersonalValues = informacionPersonal.getFieldsValues();
+                        String clave = getCellValueAsString(row.getCell(0));
+                        if (clave.isEmpty()) {
+                            throw new RuntimeException("Clave MPRO es requerida");
+                        }
+                        informacionPersonalValues.put("Clave MPRO", clave);
+                        Cell names = row.getCell(1);
+                        if (names == null || names.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombres es requerido");
+                        }
+                        informacionPersonalValues.put("Primer Nombre", names.getStringCellValue());
+                        Cell lastName = row.getCell(2);
+                        if (lastName == null || lastName.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Primer apellido es requerido");
+                        }
+                        informacionPersonalValues.put("Primer Apellido", lastName.getStringCellValue());
+                        informacionPersonalValues.put("Segundo Apellido", row.getCell(3) != null ? row.getCell(3).getStringCellValue() : "");
+                        Cell gender = row.getCell(4);
+                        if (gender == null || gender.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Sexo es requerido");
+                        }
+                        informacionPersonalValues.put("Sexo", gender.getStringCellValue());
+                        DateTimeFormatter formatters = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+                        //LocalDate.parse(row.getCell(9).getStringCellValue(), formatters);
+                        // row.getCell(9).getStringCellValue()
+                        if (row.getCell(9) != null && row.getCell(9).getCellType() == CellType.NUMERIC) {
+                            LocalDate hiredDate = row.getCell(9).getDateCellValue().toInstant()
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDate();
+                            informacionPersonalValues.put("Fecha de contratación", hiredDate.format(formatters));
+                        }
+                        ProfileSecValueRequest informacionBiografica = new ProfileSecValueRequest();
+                        informacionBiografica.setKeyword("PSBI02");
+                        Map<String, Object> informacionBiograficaValues = informacionBiografica.getFieldsValues();
+                        //LocalDate.parse(row.getCell(8).getStringCellValue(), formatters);
+                        //row.getCell(8).getStringCellValue()
+                        if (row.getCell(8) != null && row.getCell(8).getCellType() == CellType.NUMERIC) {
+                            LocalDate birthDate = row.getCell(8).getDateCellValue().toInstant()
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDate();
+                            informacionBiograficaValues.put("Fecha de nacimiento", birthDate.format(formatters));
+                        }
 
-                    ProfileSecValueRequest datosPersonales = new ProfileSecValueRequest();
-                    datosPersonales.setKeyword("PSPD03");
-                    Map<String, Object> datosPersonalesValues = datosPersonales.getFieldsValues();
-                    String rfc = getCellValueAsString(row.getCell(5));
-                    if(rfc.isEmpty()){
-                        throw new RuntimeException("RFC es requerido");
-                    }
-                    datosPersonalesValues.put("RFC", rfc);
-                    String curp = getCellValueAsString(row.getCell(6));
-                    if(curp.isEmpty()){
-                        throw new RuntimeException("CURP es requerido");
-                    }
-                    datosPersonalesValues.put("CURP", curp);
-                    String nss = getCellValueAsString(row.getCell(7));
-                    if(nss.isEmpty()){
-                        throw new RuntimeException("NSS es requerido");
-                    }
-                    datosPersonalesValues.put("NSS", nss);
+                        ProfileSecValueRequest datosPersonales = new ProfileSecValueRequest();
+                        datosPersonales.setKeyword("PSPD03");
+                        Map<String, Object> datosPersonalesValues = datosPersonales.getFieldsValues();
+                        String rfc = getCellValueAsString(row.getCell(5));
+                        if (rfc.isEmpty()) {
+                            throw new RuntimeException("RFC es requerido");
+                        }
+                        datosPersonalesValues.put("RFC", rfc);
+                        String curp = getCellValueAsString(row.getCell(6));
+                        if (curp.isEmpty()) {
+                            throw new RuntimeException("CURP es requerido");
+                        }
+                        datosPersonalesValues.put("CURP", curp);
+                        String nss = getCellValueAsString(row.getCell(7));
+                        if (nss.isEmpty()) {
+                            throw new RuntimeException("NSS es requerido");
+                        }
+                        datosPersonalesValues.put("NSS", nss);
 
-                    ProfileSecValueRequest direccion = new ProfileSecValueRequest();
-                    direccion.setKeyword("PSAS05");
-                    Map<String, Object> direccionValues = direccion.getFieldsValues();
-                    direccionValues.put("Dirección", row.getCell(12) != null ? row.getCell(12).getStringCellValue(): "");
+                        ProfileSecValueRequest direccion = new ProfileSecValueRequest();
+                        direccion.setKeyword("PSAS05");
+                        Map<String, Object> direccionValues = direccion.getFieldsValues();
+                        direccionValues.put("Dirección", row.getCell(12) != null ? row.getCell(12).getStringCellValue() : "");
 
-                    String cellCountryValue = getCellValueAsString(row.getCell(13));
-                    if (cellCountryValue.isEmpty()) throw new RuntimeException("Pais es requerido");
-                    String cellStateValue = getCellValueAsString(row.getCell(14));
-                    if (cellStateValue.isEmpty()) throw new RuntimeException("Estado es requerido");
-                    String cellCityValue = getCellValueAsString(row.getCell(15));
-                    if (cellCityValue.isEmpty()) throw new RuntimeException("Municipio es requerido");
+                        String cellCountryValue = getCellValueAsString(row.getCell(13));
+                        if (cellCountryValue.isEmpty()) throw new RuntimeException("Pais es requerido");
+                        String cellStateValue = getCellValueAsString(row.getCell(14));
+                        if (cellStateValue.isEmpty()) throw new RuntimeException("Estado es requerido");
+                        String cellCityValue = getCellValueAsString(row.getCell(15));
+                        if (cellCityValue.isEmpty()) throw new RuntimeException("Municipio es requerido");
 
-                    CountryResponse paisResidencia = countriesCache.get(cellCountryValue.toLowerCase());
-                    if (paisResidencia == null) throw new RuntimeException("Pais no encontrado: " + cellCountryValue);
+                        CountryResponse paisResidencia = countriesCache.get(cellCountryValue.toLowerCase());
+                        if (paisResidencia == null)
+                            throw new RuntimeException("Pais no encontrado: " + cellCountryValue);
 
-                    synchronized (statesCache) {
                         statesCache.computeIfAbsent(paisResidencia.getId(), id ->
                                 migrationFeign.findAllStatesByCountryId(bearerToken, id).getData().stream()
                                         .collect(Collectors.toMap(
                                                 state -> state.getName().toLowerCase(),
-                                                state -> state
-                                        ))
+                                                state -> state)));
+                        CountryResponse estadoResidencia = statesCache.get(paisResidencia.getId()).get(cellStateValue.toLowerCase());
+                        if (estadoResidencia == null)
+                            throw new RuntimeException("Estado no encontrado: " + cellStateValue);
+
+                        synchronized (citiesCache) {
+                            citiesCache.computeIfAbsent(paisResidencia.getId(), id -> new HashMap<>())
+                                    .computeIfAbsent(estadoResidencia.getId(), id ->
+                                            migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, paisResidencia.getId(), estadoResidencia.getId()).getData().stream()
+                                                    .collect(Collectors.toMap(
+                                                            city -> city.getName().toLowerCase(),
+                                                            city -> city
+                                                    ))
+                                    );
+                        }
+                        CountryResponse ciudadResidencia = citiesCache.get(paisResidencia.getId()).get(estadoResidencia.getId()).get(cellCityValue.toLowerCase());
+                        if (ciudadResidencia == null)
+                            throw new RuntimeException("Municipio no encontrado: " + cellCityValue);
+
+                        direccionValues.put("Lugar de Residencia", Arrays.asList(paisResidencia, estadoResidencia, ciudadResidencia));
+
+                        ProfileSecValueRequest contacto = new ProfileSecValueRequest();
+                        contacto.setKeyword("PSCI06");
+                        Map<String, Object> contactoValues = contacto.getFieldsValues();
+                        Cell cellEmail = row.getCell(10);
+                        if (cellEmail == null || cellEmail.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Email Personal es requerido");
+                        }
+                        contactoValues.put("Email Personal", cellEmail.getStringCellValue());
+                        String cellPhone = getCellValueAsString(row.getCell(11));
+                        contactoValues.put("Celular personal", cellPhone);
+
+                        profileSecValueRequestList.add(informacionPersonal);
+                        profileSecValueRequestList.add(informacionBiografica);
+                        profileSecValueRequestList.add(datosPersonales);
+                        profileSecValueRequestList.add(direccion);
+                        profileSecValueRequestList.add(contacto);
+
+                        profileRequest.setSectionValues(profileSecValueRequestList);
+                        String cellWorkPosition = getCellValueAsString(row.getCell(16));
+                        if (cellWorkPosition.isEmpty()) {
+                            throw new RuntimeException("Cargo es requerido");
+                        }
+
+                        Long workPositionId = workPositionCache.computeIfAbsent(cellWorkPosition, code -> {
+                                    WorkPositionResponse workPositionResponse = migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition();
+                                    if (workPositionResponse.getCompCategory() == null && workPositionResponse.getCompTab() == null) throw new RuntimeException("No puede crear colaborador porque el cargo no tiene categoría de puesto y tabulador");
+                                    if (workPositionResponse.getCompCategory() == null) throw new RuntimeException("No puede crear colaborador porque el cargo no tiene categoría de puesto");
+                                    if (workPositionResponse.getCompTab() == null) throw new RuntimeException("No puede crear colaborador porque el cargo no tiene tabulador");
+                                    return workPositionResponse.getId();
+                                }
                         );
-                    }
-                    CountryResponse estadoResidencia = statesCache.get(paisResidencia.getId()).get(cellStateValue.toLowerCase());
-                    if (estadoResidencia == null) throw new RuntimeException("Estado no encontrado: " + cellStateValue);
 
-                    synchronized (citiesCache) {
-                        citiesCache.computeIfAbsent(paisResidencia.getId(), id -> new HashMap<>())
-                                .computeIfAbsent(estadoResidencia.getId(), id ->
-                                        migrationFeign.findAllCitesByStateIdAndCountryId(bearerToken, paisResidencia.getId(), estadoResidencia.getId()).getData().stream()
-                                                .collect(Collectors.toMap(
-                                                        city -> city.getName().toLowerCase(),
-                                                        city -> city
-                                                ))
-                                );
+                        profileRequest.setWorkPositionId(workPositionId);
+                        migrationFeign.createProfile(bearerToken, profileRequest);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 3, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empleados: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empleados: " + e.getMessage());
                     }
-                    CountryResponse ciudadResidencia = citiesCache.get(paisResidencia.getId()).get(estadoResidencia.getId()).get(cellCityValue.toLowerCase());
-                    if (ciudadResidencia == null) throw new RuntimeException("Municipio no encontrado: " + cellCityValue);
-
-                    direccionValues.put("Lugar de Residencia", Arrays.asList(paisResidencia, estadoResidencia, ciudadResidencia));
-
-                    ProfileSecValueRequest contacto = new ProfileSecValueRequest();
-                    contacto.setKeyword("PSCI06");
-                    Map<String, Object> contactoValues = contacto.getFieldsValues();
-                    Cell cellEmail = row.getCell(10);
-                    if (cellEmail == null || cellEmail.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Email Personal es requerido");
-                    }
-                    contactoValues.put("Email Personal", cellEmail.getStringCellValue());
-                    String cellPhone = getCellValueAsString(row.getCell(11));
-                    contactoValues.put("Celular personal",  cellPhone);
-
-                    profileSecValueRequestList.add(informacionPersonal);
-                    profileSecValueRequestList.add(informacionBiografica);
-                    profileSecValueRequestList.add(datosPersonales);
-                    profileSecValueRequestList.add(direccion);
-                    profileSecValueRequestList.add(contacto);
-
-                    profileRequest.setSectionValues(profileSecValueRequestList);
-                    String cellWorkPosition = getCellValueAsString(row.getCell(16));
-                    if(cellWorkPosition.isEmpty()) {
-                        throw new RuntimeException("Cargo es requerido");
-                    }
-                    Long workPositionId = workPositionCache.computeIfAbsent(cellWorkPosition, code ->
-                            migrationFeign.findWorkPositionByCode(bearerToken, code).getData().getWorkPosition().getId()
-                    );
-
-                    profileRequest.setWorkPositionId(workPositionId);
-                    migrationFeign.createProfile(bearerToken, profileRequest);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet empleados: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateReferences(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -1701,73 +2062,94 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             Map<String, Long> profilesCache = new ConcurrentHashMap<>();
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String clave = getCellValueAsString(row.getCell(0));
+                        if (clave.isEmpty()) {
+                            throw new RuntimeException("Clave MPRO es requerida");
+                        }
+                        Long profileId = profilesCache.computeIfAbsent(clave, code ->
+                                migrationFeign.findProfileByClaveMpro(bearerToken, code).getData().getId()
+                        );
 
-                    String clave = getCellValueAsString(row.getCell(0));
-                    if(clave.isEmpty()){
-                        throw new RuntimeException("Clave MPRO es requerida");
-                    }
-                    Long profileId = profilesCache.computeIfAbsent(clave, code ->
-                            migrationFeign.findProfileByClaveMpro(bearerToken, code).getData().getId()
-                    );
+                        ProfileSecValueRequest references = new ProfileSecValueRequest();
+                        references.setKeyword("PSRF16");
+                        Map<String, Object> referencesValues = references.getFieldsValues();
+                        Cell cellNombre = row.getCell(1);
+                        String cellTelefono = getCellValueAsString(row.getCell(2));
+                        if (cellNombre == null || cellNombre.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Nombre es requerido");
+                        }
+                        if (cellTelefono.isEmpty()) {
+                            throw new RuntimeException("Telefono es requerido");
+                        }
+                        referencesValues.put("Nombre", cellNombre.getStringCellValue());
+                        referencesValues.put("Teléfono", cellTelefono);
 
-                    ProfileSecValueRequest references = new ProfileSecValueRequest();
-                    references.setKeyword("PSRF16");
-                    Map<String, Object> referencesValues = references.getFieldsValues();
-                    Cell cellNombre = row.getCell(1);
-                    String cellTelefono = getCellValueAsString(row.getCell(2));
-                    if(cellNombre == null || cellNombre.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Nombre es requerido");
+                        migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, references);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 3, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet referencias: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet referencias: " + e.getMessage());
                     }
-                    if(cellTelefono.isEmpty()) {
-                        throw new RuntimeException("Telefono es requerido");
-                    }
-                    referencesValues.put("Nombre", cellNombre.getStringCellValue());
-                    referencesValues.put("Teléfono", cellTelefono);
-
-                    migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, references);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet referencias: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse migrateInfoBancaria(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -1775,80 +2157,101 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String clave = getCellValueAsString(row.getCell(0));
+                        if (clave.isEmpty()) {
+                            throw new RuntimeException("Clave MPRO es requerida");
+                        }
+                        Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
 
-                    String clave = getCellValueAsString(row.getCell(0));
-                    if(clave.isEmpty()){
-                        throw new RuntimeException("Clave MPRO es requerida");
-                    }
-                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
+                        ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
+                        informacionPago.setKeyword("PSPM14");
+                        Map<String, Object> informacionPagoValues = informacionPago.getFieldsValues();
+                        Cell cellBanco = row.getCell(1);
+                        String cellCuenta = getCellValueAsString(row.getCell(2));
+                        String cellClabe = getCellValueAsString(row.getCell(3));
+                        Cell cellTitular = row.getCell(4);
+                        if (cellBanco == null || cellBanco.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Banco es requerido");
+                        }
+                        if (cellCuenta.isEmpty()) {
+                            throw new RuntimeException("Cuenta bancaria es requerido");
+                        }
+                        if (cellClabe.isEmpty()) {
+                            throw new RuntimeException("Clabe interbancaria es requerido");
+                        }
+                        if (cellTitular == null || cellTitular.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Titular de la cuenta es requerido");
+                        }
 
-                    ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
-                    informacionPago.setKeyword("PSPM14");
-                    Map<String, Object> informacionPagoValues = informacionPago.getFieldsValues();
-                    Cell cellBanco = row.getCell(1);
-                    String cellCuenta = getCellValueAsString(row.getCell(2));
-                    String cellClabe = getCellValueAsString(row.getCell(3));
-                    Cell cellTitular = row.getCell(4);
-                    if(cellBanco == null || cellBanco.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Banco es requerido");
-                    }
-                    if(cellCuenta.isEmpty()) {
-                        throw new RuntimeException("Cuenta bancaria es requerido");
-                    }
-                    if(cellClabe.isEmpty()) {
-                        throw new RuntimeException("Clabe interbancaria es requerido");
-                    }
-                    if(cellTitular == null || cellTitular.getStringCellValue().isEmpty()) {
-                        throw new RuntimeException("Titular de la cuenta es requerido");
-                    }
+                        informacionPagoValues.put("Banco", cellBanco.getStringCellValue().toUpperCase());
+                        informacionPagoValues.put("Cuenta bancaria", cellCuenta);
+                        informacionPagoValues.put("Clabe interbancaria", cellClabe);
+                        informacionPagoValues.put("Titular de la cuenta", cellTitular.getStringCellValue());
 
-                    informacionPagoValues.put("Banco", cellBanco.getStringCellValue().toUpperCase());
-                    informacionPagoValues.put("Cuenta bancaria", cellCuenta);
-                    informacionPagoValues.put("Clabe interbancaria", cellClabe);
-                    informacionPagoValues.put("Titular de la cuenta", cellTitular.getStringCellValue());
-
-                    migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, informacionPago);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, informacionPago);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 3, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet informacion bancaria: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet informacion bancaria: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet informacion bancaria: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
     public UtilResponse migrateInfoSueldos(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
 
@@ -1856,69 +2259,170 @@ public class MigrationService {
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
 
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    String clave = getCellValueAsString(row.getCell(0));
-                    if(clave.isEmpty()){
-                        throw new RuntimeException("Clave MPRO es requerida");
-                    }
-                    Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String clave = getCellValueAsString(row.getCell(0));
+                        if (clave.isEmpty()) {
+                            throw new RuntimeException("Clave MPRO es requerida");
+                        }
+                        Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
 
-                    ProfileSecValueRequest payrollInformation = new ProfileSecValueRequest();
-                    payrollInformation.setKeyword("PSPN11");
-                    Map<String, Object> payrollInformationValues = payrollInformation.getFieldsValues();
-                    Cell cellSueldoMensual = row.getCell(1);
-                    Cell cellSueldoDiario = row.getCell(2);
-                    if(cellSueldoMensual == null || cellSueldoMensual.getNumericCellValue() == 0) {
-                        throw new RuntimeException("Salario mensual es requerido");
-                    }
-                    if(cellSueldoDiario == null || cellSueldoMensual.getNumericCellValue() == 0) {
-                        throw new RuntimeException("Sueldo diario es requerido");
-                    }
+                        ProfileSecValueRequest payrollInformation = new ProfileSecValueRequest();
+                        payrollInformation.setKeyword("PSPN11");
+                        Map<String, Object> payrollInformationValues = payrollInformation.getFieldsValues();
+                        Cell cellSueldoMensual = row.getCell(1);
+                        Cell cellSueldoDiario = row.getCell(2);
+                        if (cellSueldoMensual == null || cellSueldoMensual.getNumericCellValue() == 0) {
+                            throw new RuntimeException("Salario mensual es requerido");
+                        }
+                        if (cellSueldoDiario == null || cellSueldoMensual.getNumericCellValue() == 0) {
+                            throw new RuntimeException("Sueldo diario es requerido");
+                        }
 
-                    payrollInformationValues.put("Salario mensual", cellSueldoMensual.getNumericCellValue());
-                    payrollInformationValues.put("Sueldo diario", cellSueldoDiario.getNumericCellValue());
+                        payrollInformationValues.put("Salario mensual", cellSueldoMensual.getNumericCellValue());
+                        payrollInformationValues.put("Sueldo diario", cellSueldoDiario.getNumericCellValue());
 
-                    migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, payrollInformation);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 3);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, payrollInformation);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 3, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sueldos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet sueldos: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet sueldos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet sueldos: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
+
+    public UtilResponse profilesDraftActivation(MultipartFile file, String bearerToken) {
+        ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
+
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("empleados");
+            if(sheet == null) throw new NullException();
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+            CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
+
+            ExecutorService executor = Executors.newFixedThreadPool(6);
+            List<Future<?>> futures = new ArrayList<>();
+            for (int i = 1; i < numberOfRows; i++) {
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String clave = getCellValueAsString(row.getCell(0));
+                        if (clave.isEmpty()) {
+                            throw new RuntimeException("Clave MPRO es requerida");
+                        }
+                        Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
+
+                        migrationFeign.profileDraftActivation(bearerToken, profileId);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 3, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empleados: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empleados: " + e.getMessage());
+                    }
+                }));
+            }
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
+        } catch (Exception e) {
+            catchUnexpectedExceptions(e);
+        }
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
+    }
+
     public UtilResponse loadCompensationsCategories(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
@@ -1929,6 +2433,7 @@ public class MigrationService {
 
             // Crear un estilo de celda con color verde para los datos insertados correctamente
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
 
             Row rowNames = sheet.getRow(0);
             Map<String, Integer> fieldsExcel = new HashMap<>();
@@ -1957,102 +2462,124 @@ public class MigrationService {
                 cell.setCellStyle(this.redCellStyle(workbook));
                 cell.setCellValue("Codigo / Denominacion / Estatus no existe");
                 workbook.write(modifiedFileOutputStream);
-                return new UtilResponse(modifiedFileOutputStream, success, failure);
+                return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
             }
 
-            // Recorrer la cantidad de filas a partir de la posición 1 porque la 0 son los nombres de las columnas
+            ExecutorService executor = Executors.newFixedThreadPool(5);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    String cellCode1 = getCellValueAsString(row.getCell(cellCode));
-                    if(cellCode1.isEmpty()){
-                        throw new RuntimeException("Codigo es requerido");
-                    }
-                    Cell cellDenomination1 = row.getCell(cellDenomination);
-                    if(cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Denominacion es requerido");
-                    }
-                    Map<String, Object> fieldsValues = new HashMap<>();
-
-                    fieldsExcel.forEach((nameColumn, position) -> {
-                        Cell cell = row.getCell(position);
-                        if (cell == null) {
-                            fieldsValues.put(nameColumn, null);
-                        } else {
-                            switch (cell.getCellType()) {
-                                case STRING:
-                                    fieldsValues.put(nameColumn, cell.getStringCellValue());
-                                    break;
-                                case NUMERIC:
-                                    if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
-                                        fieldsValues.put(nameColumn, cell.getDateCellValue());
-                                    } else {
-                                        if(Objects.equals(nameColumn, "Dias de aguinaldo")){
-                                            fieldsValues.put(nameColumn, (long) cell.getNumericCellValue());
-                                        }
-                                        else {
-                                            fieldsValues.put(nameColumn, cell.getNumericCellValue());
-                                        }
-                                    }
-                                    break;
-                                case BOOLEAN:
-                                    fieldsValues.put(nameColumn, cell.getBooleanCellValue());
-                                    break;
-                                default:
-                                    fieldsValues.put(nameColumn, null);
-                                    break;
-                            }
+                final int rowI = i;
+                Integer finalCellCode = cellCode;
+                Integer finalCellDenomination = cellDenomination;
+                Integer finalCellStatus = cellStatus;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String cellCode1 = getCellValueAsString(row.getCell(finalCellCode));
+                        if (cellCode1.isEmpty()) {
+                            throw new RuntimeException("Codigo es requerido");
                         }
-                    });
+                        Cell cellDenomination1 = row.getCell(finalCellDenomination);
+                        if (cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Denominacion es requerido");
+                        }
+                        Map<String, Object> fieldsValues = new HashMap<>();
 
-                    Cell cellStatus2 = row.getCell(cellStatus);
-                    long statusId = getStatusId(cellStatus2);
+                        fieldsExcel.forEach((nameColumn, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell == null) {
+                                fieldsValues.put(nameColumn, null);
+                            } else {
+                                switch (cell.getCellType()) {
+                                    case STRING:
+                                        fieldsValues.put(nameColumn, cell.getStringCellValue());
+                                        break;
+                                    case NUMERIC:
+                                        if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+                                            fieldsValues.put(nameColumn, cell.getDateCellValue());
+                                        } else {
+                                            if (Objects.equals(nameColumn, "Dias de aguinaldo")) {
+                                                fieldsValues.put(nameColumn, (long) cell.getNumericCellValue());
+                                            } else {
+                                                fieldsValues.put(nameColumn, cell.getNumericCellValue());
+                                            }
+                                        }
+                                        break;
+                                    case BOOLEAN:
+                                        fieldsValues.put(nameColumn, cell.getBooleanCellValue());
+                                        break;
+                                    default:
+                                        fieldsValues.put(nameColumn, null);
+                                        break;
+                                }
+                            }
+                        });
 
-                    CompCategoriesRequest compCategories = new CompCategoriesRequest();
-                    compCategories.setCode(cellCode1);
-                    compCategories.setDenomination(cellDenomination1.getStringCellValue());
-                    compCategories.setFieldsValues(fieldsValues);
-                    compCategories.setStatusId(statusId);
+                        Cell cellStatus2 = row.getCell(finalCellStatus);
+                        long statusId = getStatusId(cellStatus2);
 
-                    migrationFeign.createCompensationCategories(bearerToken, compCategories);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        CompCategoriesRequest compCategories = new CompCategoriesRequest();
+                        compCategories.setCode(cellCode1);
+                        compCategories.setDenomination(cellDenomination1.getStringCellValue());
+                        compCategories.setFieldsValues(fieldsValues);
+                        compCategories.setStatusId(statusId);
+
+                        migrationFeign.createCompensationCategories(bearerToken, compCategories);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet categorias de puesto: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet categorias de puesto: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet categorias de puesto: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet categorias de puesto: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse loadTabs(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
-        int success = 0;
-        int failure = 0;
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
 
         // Para abrir el workbook y que se cierre automáticamente al finalizar
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
@@ -2063,6 +2590,7 @@ public class MigrationService {
 
             // Crear un estilo de celda con color verde para los datos insertados correctamente
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
 
             Row rowNames = sheet.getRow(0);
             Map<String, Integer> fieldsExcel = new HashMap<>();
@@ -2091,92 +2619,116 @@ public class MigrationService {
                 cell.setCellStyle(this.redCellStyle(workbook));
                 cell.setCellValue("Nivel macropay / Posicion / Estatus no existe");
                 workbook.write(modifiedFileOutputStream);
-                return new UtilResponse(modifiedFileOutputStream, success, failure);
+                return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
             }
 
+            ExecutorService executor = Executors.newFixedThreadPool(5);
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
-                try {
-                    Row row = sheet.getRow(i);
-                    String cellCode1 = getCellValueAsString(row.getCell(cellCode));
-                    if(cellCode1.isEmpty()){
-                        throw new RuntimeException("Nivel macropay es requerido");
-                    }
-                    Cell cellDenomination1 = row.getCell(cellDenomination);
-                    if(cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()){
-                        throw new RuntimeException("Posicion es requerido");
-                    }
-                    Map<String, Object> fieldsValues = new HashMap<>();
-
-                    fieldsExcel.forEach((nameColumn, position) -> {
-                        Cell cell = row.getCell(position);
-                        if (cell == null) {
-                            fieldsValues.put(nameColumn, null);
-                        } else {
-                            switch (cell.getCellType()) {
-                                case STRING:
-                                    fieldsValues.put(nameColumn, cell.getStringCellValue());
-                                    break;
-                                case NUMERIC:
-                                    if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
-                                        fieldsValues.put(nameColumn, cell.getDateCellValue());
-                                    } else {
-                                        fieldsValues.put(nameColumn, (long) cell.getNumericCellValue());
-                                    }
-                                    break;
-                                case BOOLEAN:
-                                    fieldsValues.put(nameColumn, cell.getBooleanCellValue());
-                                    break;
-                                default:
-                                    fieldsValues.put(nameColumn, null);
-                                    break;
-                            }
+                final int rowI = i;
+                Integer finalCellCode = cellCode;
+                Integer finalCellDenomination = cellDenomination;
+                Integer finalCellStatus = cellStatus;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String cellCode1 = getCellValueAsString(row.getCell(finalCellCode));
+                        if (cellCode1.isEmpty()) {
+                            throw new RuntimeException("Nivel macropay es requerido");
                         }
-                    });
+                        Cell cellDenomination1 = row.getCell(finalCellDenomination);
+                        if (cellDenomination1 == null || cellDenomination1.getStringCellValue().isEmpty()) {
+                            throw new RuntimeException("Posicion es requerido");
+                        }
+                        Map<String, Object> fieldsValues = new HashMap<>();
 
-                    Cell cellStatus2 = row.getCell(cellStatus);
-                    long statusId = getStatusId(cellStatus2);
+                        fieldsExcel.forEach((nameColumn, position) -> {
+                            Cell cell = row.getCell(position);
+                            if (cell == null) {
+                                fieldsValues.put(nameColumn, null);
+                            } else {
+                                switch (cell.getCellType()) {
+                                    case STRING:
+                                        fieldsValues.put(nameColumn, cell.getStringCellValue());
+                                        break;
+                                    case NUMERIC:
+                                        if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
+                                            fieldsValues.put(nameColumn, cell.getDateCellValue());
+                                        } else {
+                                            fieldsValues.put(nameColumn, (long) cell.getNumericCellValue());
+                                        }
+                                        break;
+                                    case BOOLEAN:
+                                        fieldsValues.put(nameColumn, cell.getBooleanCellValue());
+                                        break;
+                                    default:
+                                        fieldsValues.put(nameColumn, null);
+                                        break;
+                                }
+                            }
+                        });
 
-                    TabsRequest tabsRequest = new TabsRequest();
-                    tabsRequest.setCode(cellCode1);
-                    tabsRequest.setDenomination(cellDenomination1.getStringCellValue());
-                    tabsRequest.setMinAuthorizedSalary(0L);
-                    tabsRequest.setMaxAuthorizedSalary(0L);
-                    tabsRequest.setStatusId(statusId);
-                    tabsRequest.setFieldsValues(fieldsValues);
+                        Cell cellStatus2 = row.getCell(finalCellStatus);
+                        long statusId = getStatusId(cellStatus2);
 
-                    migrationFeign.createTab(bearerToken, tabsRequest);
-                    row.getCell(0).setCellStyle(cellStyle);
-                    success++;
-                } catch (ErrorResponseException e) {
-                    failure++;
-                    ErrorResponse error = e.getError();
-                    this.agregarExcetionFeign(bearerToken, sheet.getRow(i), error.getErrors(), 2);
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        TabsRequest tabsRequest = new TabsRequest();
+                        tabsRequest.setCode(cellCode1);
+                        tabsRequest.setDenomination(cellDenomination1.getStringCellValue());
+                        tabsRequest.setMinAuthorizedSalary(0L);
+                        tabsRequest.setMaxAuthorizedSalary(0L);
+                        tabsRequest.setStatusId(statusId);
+                        tabsRequest.setFieldsValues(fieldsValues);
+
+                        migrationFeign.createTab(bearerToken, tabsRequest);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 2, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet tabuladores: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet tabuladores: " + e.getMessage());
                     }
-                    log.error("Error processing row " + (i + 1) + " in sheet tabuladores: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
-                    if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
-                        log.error("With fields id: " + e.getError().getErrors().getId());
-                    }
-                } catch (Exception e) {
-                    reThrowFeignException(e);
-                    failure++;
-                    this.agregarCeldaError(sheet.getRow(i), e.getMessage());
-                    if (sheet.getRow(i).getCell(0) != null){
-                        sheet.getRow(i).getCell(0).setCellStyle(this.redCellStyle(workbook));
-                    } else {
-                        sheet.getRow(i).createCell(0).setCellStyle(this.redCellStyle(workbook));
-                    }
-                    log.error("Error processing row " + (i + 1) + " in sheet tabuladores: " + e.getMessage());
-                }
+                }));
             }
-            workbook.write(modifiedFileOutputStream);
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
-        return new UtilResponse(modifiedFileOutputStream, success, failure);
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
     }
 
     public UtilResponse loadWorkPositionCategories(MultipartFile file, String bearerToken) {
@@ -2193,6 +2745,7 @@ public class MigrationService {
 
             // Crear un estilo de celda con color verde para los datos insertados correctamente
             CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
 
             Row rowNames = sheet.getRow(0);
             Map<String, Integer> fieldsExcel = new HashMap<>();
@@ -2223,7 +2776,7 @@ public class MigrationService {
                 workbook.write(modifiedFileOutputStream);
                 return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
             }
-            ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+            ExecutorService executor = Executors.newFixedThreadPool(6);
             List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < sheet.getPhysicalNumberOfRows(); i++) {
                 int finalI = i;
@@ -2233,6 +2786,7 @@ public class MigrationService {
                 futures.add(executor.submit(() -> {
                     try {
                         Row row = sheet.getRow(finalI);
+                        if (row == null) return;
                         String cellCode1 = getCellValueAsString(row.getCell(finalCellCode));
                         if (cellCode1.isEmpty()) {
                             throw new RuntimeException("Codigo es requerido");
@@ -2285,13 +2839,13 @@ public class MigrationService {
                     } catch (ErrorResponseException e) {
                         failure.incrementAndGet();
                         ErrorResponse error = e.getError();
-                        this.agregarExcetionFeign(bearerToken, sheet.getRow(finalI), error.getErrors(), 2);
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(finalI), error.getErrors(), 2, fieldNameCache);
                         if (sheet.getRow(finalI).getCell(0) != null){
                             sheet.getRow(finalI).getCell(0).setCellStyle(this.redCellStyle(workbook));
                         } else {
                             sheet.getRow(finalI).createCell(0).setCellStyle(this.redCellStyle(workbook));
                         }
-                        log.error("Error processing row " + (finalI + 1) + " in sheet puestos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getMessage()));
+                        log.error("Error processing row " + (finalI + 1) + " in sheet puestos: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
                         if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
                             log.error("With fields id: " + e.getError().getErrors().getId());
                         }
@@ -2313,6 +2867,7 @@ public class MigrationService {
                 for (Future<?> future : futures) {
                     future.get();
                 }
+                workbook.write(modifiedFileOutputStream);
             } catch (ExecutionException ee) {
                 Throwable cause = ee.getCause();
                 if (cause instanceof FeignException) {
@@ -2323,8 +2878,6 @@ public class MigrationService {
             } finally {
                 executor.shutdown();
             }
-
-            workbook.write(modifiedFileOutputStream);
         } catch (Exception e) {
             catchUnexpectedExceptions(e);
         }
@@ -2361,7 +2914,7 @@ public class MigrationService {
         errorCell.setCellValue(message);
     }
 
-    private void agregarExcetionFeign(String bearerToken, Row row, ErrorDetailResponse errorDetailResponse, Integer fieldType) {
+    private void agregarExcetionFeign(String bearerToken, Row row, ErrorDetailResponse errorDetailResponse, Integer fieldType, Map<Long, String> fieldNameCache) {
         // Agregar celda con el mensaje de error en la fila que falló
         Cell errorCell = row.createCell(row.getPhysicalNumberOfCells() + 1);
 
@@ -2372,12 +2925,16 @@ public class MigrationService {
 
         String message = "";
         if (errorDetailResponse.getId() != null) {
-            String name = "";
-            try {
-                name = migrationFeign.getNameField(bearerToken, errorDetailResponse.getId(), fieldType).getData().getName();
-            } catch (Exception e1) {
-                log.error("falló obteniendo el nombre del campo {}", e1.getMessage());
-            }
+            Long fieldId = errorDetailResponse.getId();
+            // Uso del caché local para obtener o almacenar el nombre del campo
+            String name = fieldNameCache.computeIfAbsent(fieldId, id -> {
+                try {
+                    return migrationFeign.getNameField(bearerToken, id, fieldType).getData().getName();
+                } catch (Exception e) {
+                    log.error("falló obteniendo el nombre del campo {}", e.getMessage());
+                    return ""; // Devuelve una cadena vacía si la llamada falla
+                }
+            });
             if (name != null && !name.isEmpty()) message = name + ": ";
         }
 
@@ -2500,7 +3057,9 @@ public class MigrationService {
 
     private void reThrowFeignException(Exception e) {
         if (e instanceof FeignException e1) {
-            throw e1;
+            if (e1.status() == 401 || e1.status() == 403 || e1.status() == 503){
+                throw e1;
+            }
         }
     }
 }
