@@ -12,5 +12,5 @@ public class WorkPositionUpdateRequest {
     private Long compCategoryId;
     private Long orgManagerId;
     private Long approvalManagerId;
-    private Long minSalary;
+    private Double authorizedSalary;
 }

@@ -48,6 +48,8 @@ public enum ExceptionCodeEnum {
     C01USER33("El correo electrónico del usuario ya existe"),
     C01USER34("El usuario no puede ser activado, no tiene un gerente de aprobación activo asignado"),
     C01USER35("No se puede asignar el cargo, ha completado el personal autorizado"),
+    C01USRP11("El motivo de baja no es correcto"),
+    C01USRP12("El submotivo de baja no pertenece al motivo"),
     C01ORGE01("Debe agregar al menos un campo"),
     C01ORGE02("La entidad de la organización no se puede eliminar, tiene detalles asignados"),
     C01ORGE03("El id de la entidad está duplicado en la lista"),

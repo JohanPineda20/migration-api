@@ -75,20 +75,22 @@ public interface MigrationFeign {
 
 
 
-    @GetMapping("/profile")
-    DefaultResponse<ProfileResponse> findProfileByClaveMpro(@RequestHeader("Authorization") String token,
-                                                            @RequestParam String clave);
     @PostMapping("/profile")
     void createProfile(@RequestHeader("Authorization") String token,
                        @RequestBody ProfileRequest profileRequest);
-    @PostMapping("/profile/{profileId}/profile-section-values")
+    @PostMapping("/profile/{claveMpro}/profile-section-values")
     void createProfileSectionValueByProfile(@RequestHeader("Authorization") String token,
-                                            @PathVariable Long profileId,
+                                            @PathVariable String claveMpro,
                                             @RequestBody ProfileSecValueRequest profileSecValueRequest);
 
-    @PostMapping("/profile/{profileId}/profile-activation")
+    @PostMapping("/profile/{claveMpro}/profile-activation")
     void profileDraftActivation(@RequestHeader("Authorization") String token,
-                                @PathVariable Long profileId);
+                                @PathVariable String claveMpro);
+
+    @PostMapping("/profile/{claveMpro}/profile-deactivation")
+    void profileDeactivation(@RequestHeader("Authorization") String token,
+                             @PathVariable String claveMpro,
+                             @RequestBody DeactiveProfRequest deactiveProfRequest);
 
 
 

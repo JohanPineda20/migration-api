@@ -1,7 +1,7 @@
 server:
   port: 8545
 hrcore:
-  organization-api: ${HRCORE_ORGANIZATION_API:https://hqedejv4h2.execute-api.us-east-1.amazonaws.com/qa/api1}
+  organization-api: ${HRCORE_ORGANIZATION_API:https://hrapi01qa.nelumbo.com.co}
 logging:
   file:
     name: /var/www/html/migration/migrationqa/migrationqa.log

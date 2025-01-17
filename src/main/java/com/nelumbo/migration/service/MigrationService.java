@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
+import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -38,6 +39,48 @@ public class MigrationService {
     private static final String COUNTROWS = "La cantidad de filas es: ";
 
     private final MigrationFeign migrationFeign;
+
+    private final Map<String, Long> catalogues = new ConcurrentHashMap<>(
+            Map.ofEntries(
+                    Map.entry("Abandono", 189L),
+                    Map.entry("Baja voluntaria", 190L),
+                    Map.entry("Rescisión de contrato", 191L),
+                    Map.entry("Término de contrato", 192L),
+                    Map.entry("Dejó de presentarse en sitio laboral", 193L),
+                    Map.entry("Mejor oferta laboral", 194L),
+                    Map.entry("Motivos/problemas personales", 195L),
+                    Map.entry("Sueldo", 196L),
+                    Map.entry("Insatisfacción laboral", 197L),
+                    Map.entry("Cambio de residencia/domicilio", 198L),
+                    Map.entry("Estudios", 199L),
+                    Map.entry("Horario laboral", 200L),
+                    Map.entry("Condiciones físicas del centro de trabajo", 201L),
+                    Map.entry("Expectativas de actividades laborales", 202L),
+                    Map.entry("Ambiente laboral", 203L),
+                    Map.entry("Conflicto con compañeros", 204L),
+                    Map.entry("Falta de capacitación", 205L),
+                    Map.entry("Falta de crecimiento", 206L),
+                    Map.entry("Inconformidad con firma de pagaré", 207L),
+                    Map.entry("Cobro de inventarios", 208L),
+                    Map.entry("Desapego a políticas", 209L),
+                    Map.entry("Falta de probidad", 210L),
+                    Map.entry("Bajo desempeño", 211L),
+                    Map.entry("Ausentismo", 212L),
+                    Map.entry("Actas administrativas", 213L),
+                    Map.entry("Consumo de alcohol", 214L),
+                    Map.entry("Falta de inventarios/caja", 215L),
+                    Map.entry("Robo", 216L),
+                    Map.entry("Acoso", 217L),
+                    Map.entry("Falta de apego a funciones y responsabilidades", 218L),
+                    Map.entry("Reestructura", 219L),
+                    Map.entry("Período de prueba", 220L),
+                    Map.entry("Contrato temporal", 221L),
+                    Map.entry("Fallecimiento", 222L),
+                    Map.entry("Pensión permanente", 223L),
+                    Map.entry("Pensión temporal", 224L),
+                    Map.entry("Cesantía y vejez", 225L)
+            )
+    );
 
     public UtilResponse migrateEmpresa(MultipartFile file, String bearerToken) {
         ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
@@ -1768,14 +1811,14 @@ public class MigrationService {
                             );
                         }
 
-                        Long authorizedSalary = row.getCell(13) != null && row.getCell(13).getNumericCellValue() != 0 ? Math.round(row.getCell(13).getNumericCellValue()) : 0;
+                        Double authorizedSalary = row.getCell(13) != null ? row.getCell(13).getNumericCellValue() : 0;
 
                         WorkPositionUpdateRequest wPUReq = WorkPositionUpdateRequest.builder()
                                 .compCategoryId(compCategoryId)
                                 .compTabId(compTabId)
                                 .orgManagerId(managerWorkPositionId)
                                 .approvalManagerId(managerWorkPositionId)
-                                .minSalary(authorizedSalary)
+                                .authorizedSalary(authorizedSalary)
                                 .build();
                         migrationFeign.updateWorkPosition(bearerToken, wPUReq, workPositionId);
                         row.getCell(0).setCellStyle(cellStyle);
@@ -1850,7 +1893,7 @@ public class MigrationService {
             Map<Long, Map<Long, Map<String, CountryResponse>>> citiesCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
-            ExecutorService executor = Executors.newFixedThreadPool(7);
+            ExecutorService executor = Executors.newFixedThreadPool(15);
             List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
                 int rowI = i;
@@ -2023,6 +2066,9 @@ public class MigrationService {
                         } else {
                             sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
                         }
+                        if (e instanceof FeignException e1) {
+                            log.error("Error processing row " + (rowI + 1) + " in sheet empleados: " + e1.status());
+                        }
                         log.error("Error processing row " + (rowI + 1) + " in sheet empleados: " + e.getMessage());
                     }
                 }));
@@ -2061,7 +2107,6 @@ public class MigrationService {
             Sheet sheet = workbook.getSheet("referencias");
             if(sheet == null) throw new NullException();
             int numberOfRows = sheet.getPhysicalNumberOfRows();
-            Map<String, Long> profilesCache = new ConcurrentHashMap<>();
             Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
             CellStyle cellStyle = this.greenCellStyle(workbook);
 
@@ -2077,9 +2122,6 @@ public class MigrationService {
                         if (clave.isEmpty()) {
                             throw new RuntimeException("Clave MPRO es requerida");
                         }
-                        Long profileId = profilesCache.computeIfAbsent(clave, code ->
-                                migrationFeign.findProfileByClaveMpro(bearerToken, code).getData().getId()
-                        );
 
                         ProfileSecValueRequest references = new ProfileSecValueRequest();
                         references.setKeyword("PSRF16");
@@ -2095,7 +2137,7 @@ public class MigrationService {
                         referencesValues.put("Nombre", cellNombre.getStringCellValue());
                         referencesValues.put("Teléfono", cellTelefono);
 
-                        migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, references);
+                        migrationFeign.createProfileSectionValueByProfile(bearerToken, clave.trim(), references);
                         row.getCell(0).setCellStyle(cellStyle);
                         success.incrementAndGet();
                     } catch (ErrorResponseException e) {
@@ -2171,7 +2213,6 @@ public class MigrationService {
                         if (clave.isEmpty()) {
                             throw new RuntimeException("Clave MPRO es requerida");
                         }
-                        Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
 
                         ProfileSecValueRequest informacionPago = new ProfileSecValueRequest();
                         informacionPago.setKeyword("PSPM14");
@@ -2198,7 +2239,7 @@ public class MigrationService {
                         informacionPagoValues.put("Clabe interbancaria", cellClabe);
                         informacionPagoValues.put("Titular de la cuenta", cellTitular.getStringCellValue());
 
-                        migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, informacionPago);
+                        migrationFeign.createProfileSectionValueByProfile(bearerToken, clave.trim(), informacionPago);
                         row.getCell(0).setCellStyle(cellStyle);
                         success.incrementAndGet();
                     } catch (ErrorResponseException e) {
@@ -2273,7 +2314,6 @@ public class MigrationService {
                         if (clave.isEmpty()) {
                             throw new RuntimeException("Clave MPRO es requerida");
                         }
-                        Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
 
                         ProfileSecValueRequest payrollInformation = new ProfileSecValueRequest();
                         payrollInformation.setKeyword("PSPN11");
@@ -2287,10 +2327,10 @@ public class MigrationService {
                             throw new RuntimeException("Sueldo diario es requerido");
                         }
 
-                        payrollInformationValues.put("Salario mensual", cellSueldoMensual.getNumericCellValue());
+                        payrollInformationValues.put("Sueldo mensual", cellSueldoMensual.getNumericCellValue());
                         payrollInformationValues.put("Sueldo diario", cellSueldoDiario.getNumericCellValue());
 
-                        migrationFeign.createProfileSectionValueByProfile(bearerToken, profileId, payrollInformation);
+                        migrationFeign.createProfileSectionValueByProfile(bearerToken, clave.trim(), payrollInformation);
                         row.getCell(0).setCellStyle(cellStyle);
                         success.incrementAndGet();
                     } catch (ErrorResponseException e) {
@@ -2354,7 +2394,7 @@ public class MigrationService {
             CellStyle cellStyle = this.greenCellStyle(workbook);
             Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
 
-            ExecutorService executor = Executors.newFixedThreadPool(6);
+            ExecutorService executor = Executors.newFixedThreadPool(7);
             List<Future<?>> futures = new ArrayList<>();
             for (int i = 1; i < numberOfRows; i++) {
                 final int rowI = i;
@@ -2366,9 +2406,8 @@ public class MigrationService {
                         if (clave.isEmpty()) {
                             throw new RuntimeException("Clave MPRO es requerida");
                         }
-                        Long profileId = migrationFeign.findProfileByClaveMpro(bearerToken, clave).getData().getId();
 
-                        migrationFeign.profileDraftActivation(bearerToken, profileId);
+                        migrationFeign.profileDraftActivation(bearerToken, clave.trim());
                         row.getCell(0).setCellStyle(cellStyle);
                         success.incrementAndGet();
                     } catch (ErrorResponseException e) {
@@ -2394,6 +2433,136 @@ public class MigrationService {
                             sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
                         }
                         log.error("Error processing row " + (rowI + 1) + " in sheet empleados: " + e.getMessage());
+                    }
+                }));
+            }
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+                workbook.write(modifiedFileOutputStream);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof FeignException) {
+                    reThrowFeignException((Exception) cause);
+                } else {
+                    catchUnexpectedExceptions((Exception) cause);
+                }
+            } finally {
+                executor.shutdown();
+            }
+
+        } catch (Exception e) {
+            catchUnexpectedExceptions(e);
+        }
+        return new UtilResponse(modifiedFileOutputStream, success.get(), failure.get());
+    }
+
+    public UtilResponse profilesDeactivation(MultipartFile file, String bearerToken) {
+        ByteArrayOutputStream modifiedFileOutputStream = new ByteArrayOutputStream();
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger failure = new AtomicInteger();
+
+        try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
+
+            Sheet sheet = workbook.getSheet("empleados de baja");
+            if(sheet == null) throw new NullException();
+            int numberOfRows = sheet.getPhysicalNumberOfRows();
+            CellStyle cellStyle = this.greenCellStyle(workbook);
+            Map<Long, String> fieldNameCache = new ConcurrentHashMap<>();
+
+            ExecutorService executor = Executors.newFixedThreadPool(7);
+            List<Future<?>> futures = new ArrayList<>();
+            for (int i = 1; i < numberOfRows; i++) {
+                final int rowI = i;
+                futures.add(executor.submit(() -> {
+                    try {
+                        Row row = sheet.getRow(rowI);
+                        if (row == null) return;
+                        String clave = getCellValueAsString(row.getCell(0));
+                        if (clave.isEmpty()) {
+                            throw new RuntimeException("Clave MPRO es requerida");
+                        }
+
+                        DeactiveProfRequest deactiveProfRequest = new DeactiveProfRequest();
+
+                        Cell cellLastDayWorked = row.getCell(1);
+                        if (cellLastDayWorked == null || cellLastDayWorked.getCellType() == CellType.BLANK) throw new RuntimeException("Fecha ultimo dia de trabajo es requerida");
+                        if (cellLastDayWorked.getCellType() == CellType.NUMERIC && org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cellLastDayWorked)) {
+                            LocalDate date = cellLastDayWorked.getDateCellValue()
+                                    .toInstant()
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDate();
+                            deactiveProfRequest.setLastDayWorked(date);
+                        } else {
+                            throw new RuntimeException("Fecha ultimo dia de trabajo debe ser una fecha");
+                        }
+
+                        Cell cellTerminationDate = row.getCell(2);
+                        if (cellTerminationDate == null || cellTerminationDate.getCellType() == CellType.BLANK) throw new RuntimeException("Fecha de baja es requerida");
+                        if (cellTerminationDate.getCellType() == CellType.NUMERIC && org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cellTerminationDate)) {
+                            LocalDate date = cellTerminationDate.getDateCellValue()
+                                    .toInstant()
+                                    .atZone(ZoneId.systemDefault())
+                                    .toLocalDate();
+                            deactiveProfRequest.setTerminationDate(date);
+                        } else {
+                            throw new RuntimeException("Fecha de baja debe ser una fecha");
+                        }
+
+                        Cell cellImssTerminationDate = row.getCell(3);
+                        if (cellImssTerminationDate != null && cellImssTerminationDate.getCellType() != CellType.BLANK) {
+                            if (cellImssTerminationDate.getCellType() == CellType.NUMERIC && org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cellImssTerminationDate)) {
+                                LocalDate date = cellImssTerminationDate.getDateCellValue()
+                                        .toInstant()
+                                        .atZone(ZoneId.systemDefault())
+                                        .toLocalDate();
+                                deactiveProfRequest.setImssTerminationDate(date);
+                            } else {
+                                throw new RuntimeException("Fecha de baja IMSS debe ser una fecha");
+                            }
+                        }
+
+                        String motivo = getCellValueAsString(row.getCell(4));
+                        if (motivo.isEmpty()) {
+                            throw new RuntimeException("Motivo de baja es requerido");
+                        }
+                        String submotivo = getCellValueAsString(row.getCell(5));
+                        if (submotivo.isEmpty()) {
+                            throw new RuntimeException("Submotivo de baja es requerido");
+                        }
+
+                        Long motivoId = catalogues.get(motivo);
+                        Long submotivoId = catalogues.get(submotivo);
+                        if (motivoId == null || submotivoId == null) throw new RuntimeException("Catálogo no existe");
+                        deactiveProfRequest.setReasonId(motivoId);
+                        deactiveProfRequest.setSubreasonId(submotivoId);
+                        migrationFeign.profileDeactivation(bearerToken, clave.trim(), deactiveProfRequest);
+                        row.getCell(0).setCellStyle(cellStyle);
+                        success.incrementAndGet();
+                    } catch (ErrorResponseException e) {
+                        failure.incrementAndGet();
+                        ErrorResponse error = e.getError();
+                        this.agregarExcetionFeign(bearerToken, sheet.getRow(rowI), error.getErrors(), 3, fieldNameCache);
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empleados de baja: " + (e.getError().getErrors() != null ? e.getError().getErrors().getFields() : e.getError().getMessage()));
+                        if (e.getError().getErrors() != null && e.getError().getErrors().getId() != null) {
+                            log.error("With fields id: " + e.getError().getErrors().getId());
+                        }
+                    } catch (Exception e) {
+                        reThrowFeignException(e);
+                        failure.incrementAndGet();
+                        this.agregarCeldaError(sheet.getRow(rowI), e.getMessage());
+                        if (sheet.getRow(rowI).getCell(0) != null) {
+                            sheet.getRow(rowI).getCell(0).setCellStyle(this.redCellStyle(workbook));
+                        } else {
+                            sheet.getRow(rowI).createCell(0).setCellStyle(this.redCellStyle(workbook));
+                        }
+                        log.error("Error processing row " + (rowI + 1) + " in sheet empleados de baja: " + e.getMessage());
                     }
                 }));
             }

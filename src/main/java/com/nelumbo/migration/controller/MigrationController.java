@@ -181,6 +181,13 @@ public class MigrationController {
         return processFile(utilResponse);
     }
 
+    @PostMapping("/profiles-deactivation")
+    public Map<String, Object> profilesDeactivation(@RequestPart(value = "file") MultipartFile file,
+                                                    HttpServletRequest request){
+        UtilResponse utilResponse = migrationService.profilesDeactivation(file, request.getHeader("Authorization"));
+        return processFile(utilResponse);
+    }
+
     @PostMapping("/load-compensations")
     public Map<String, Object> loadCompensationsCategories(@RequestPart(value = "file") MultipartFile file,
                                                      HttpServletRequest request) {
